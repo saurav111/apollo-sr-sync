@@ -142,16 +142,17 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
   }
 
   const payload = {
-    profileUrl:   prospect.profileUrl   || '',
-    firstName:    prospect.firstName    || '',
-    lastName:     prospect.lastName     || '',
-    fullName:     prospect.fullName     || '',
-    emailId:      prospect.emailId      || '',
-    jobTitle:     prospect.jobTitle     || '',
-    companyName:  prospect.companyName  || '',
-    phoneNo:      '',
-    profilePhoto: '',
-    salesNavUrl:  null,
+    profileUrl:    prospect.profileUrl   || '',
+    firstName:     prospect.firstName    || '',
+    lastName:      prospect.lastName     || '',
+    fullName:      prospect.fullName     || '',
+    emailId:       prospect.emailId      || '',
+    jobTitle:      prospect.jobTitle     || '',
+    companyName:   prospect.companyName  || '',
+    phoneNo:       '',
+    profilePhoto:  '',
+    salesNavUrl:   null,
+    customMessage: prospect.customMessage || '',
   };
 
   log('ADD_PROSPECT', { campaignUuid, linkedinAccountUuid, prospect: payload });

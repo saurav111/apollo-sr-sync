@@ -347,7 +347,7 @@
         const name = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Unknown';
         const company = contact.organization_name || '';
         const title = contact.title || '';
-        const li = document.getElementById('taskList').cloneNode ? document.createElement('div') : null;
+        const note = task.note || '';
 
         list.insertAdjacentHTML('beforeend', `
           <div class="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors fade-in">
@@ -363,6 +363,7 @@
                 class="text-xs text-indigo-500 hover:underline truncate block mt-0.5">
                 ${escHtml(contact.linkedin_url)}
               </a>
+              ${note ? `<p class="text-xs text-gray-400 mt-1.5 italic line-clamp-2">"${escHtml(note)}"</p>` : ''}
             </div>
           </div>
         `);
@@ -400,13 +401,14 @@
       for (const task of selected) {
         const contact = task.contact || {};
         const prospect = {
-          profileUrl:  contact.linkedin_url,
-          firstName:   contact.first_name  || '',
-          lastName:    contact.last_name   || '',
-          fullName:    contact.name        || [contact.first_name, contact.last_name].filter(Boolean).join(' '),
-          emailId:     contact.email       || '',
-          jobTitle:    contact.title       || '',
-          companyName: contact.organization_name || '',
+          profileUrl:    contact.linkedin_url,
+          firstName:     contact.first_name  || '',
+          lastName:      contact.last_name   || '',
+          fullName:      contact.name        || [contact.first_name, contact.last_name].filter(Boolean).join(' '),
+          emailId:       contact.email       || '',
+          jobTitle:      contact.title       || '',
+          companyName:   contact.organization_name || '',
+          customMessage: task.note           || '',
         };
 
         try {
