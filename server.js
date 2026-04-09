@@ -154,9 +154,9 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
     salesNavUrl:  null,
   };
 
-  // Pass customMessage as a custom field if present
+  // Pass customMessage as a custom column if present
   if (prospect.customMessage) {
-    payload.customFields = [{ key: 'customMessage', value: prospect.customMessage }];
+    payload.customColumns = JSON.stringify({ customMessage: prospect.customMessage });
   }
 
   log('ADD_PROSPECT', { campaignUuid, linkedinAccountUuid, prospect: payload });
