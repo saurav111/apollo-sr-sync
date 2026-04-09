@@ -77,27 +77,34 @@
     <section id="step2" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 step-inactive">
       <div class="flex items-center gap-2 mb-5">
         <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
-        <h2 class="font-semibold text-gray-900">Select campaigns</h2>
+        <h2 class="font-semibold text-gray-900">Select account & campaigns</h2>
       </div>
       <div class="space-y-4">
         <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Account</label>
+          <select id="accountSelect" onchange="loadCampaigns()"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— select account —</option>
+          </select>
+        </div>
+        <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">
             Connection Request campaign
-            <span class="text-xs font-normal text-gray-400 ml-1">— for linkedin_step_connect tasks</span>
+            <span class="text-xs font-normal text-gray-400 ml-1">— for connect tasks</span>
           </label>
           <select id="connectCampaignSelect"
             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="">— select campaign —</option>
+            <option value="">— select account first —</option>
           </select>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">
             Message campaign
-            <span class="text-xs font-normal text-gray-400 ml-1">— for linkedin_step_message tasks</span>
+            <span class="text-xs font-normal text-gray-400 ml-1">— for message tasks</span>
           </label>
           <select id="messageCampaignSelect"
             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="">— select campaign —</option>
+            <option value="">— select account first —</option>
           </select>
         </div>
         <button onclick="loadTasks()"
@@ -234,9 +241,14 @@
         state.srKey       = srKey;
         state.webhookUuid = webhookUuid;
 
-        // Use first account (most users have one)
-        const account = accounts[0];
-        state.linkedinAccountUuid = account.uuid || account.linkedinAccountUuid;
+        // Populate account dropdown
+        const sel = document.getElementById('accountSelect');
+        sel.innerHTML = '<option value="">— select account —</option>' +
+          accounts.map(a => {
+            const uuid = a.uuid || a.linkedinAccountUuid;
+            const label = a.nameOnLinkedinAccount || a.profileUrl || uuid;
+            return `<option value="${escHtml(uuid)}">${escHtml(label)}</option>`;
+          }).join('');
 
         // Success state
         const btn = document.getElementById('connectBtn');
@@ -250,7 +262,6 @@
         document.getElementById('step1Success').classList.remove('hidden');
 
         enableStep('step2');
-        loadCampaigns();
       } catch (e) {
         showError('step1Error', e.message);
       } finally {
@@ -260,6 +271,10 @@
 
     // ── Load campaigns into both dropdowns ───────────────────────────────────
     async function loadCampaigns() {
+      const linkedinAccountUuid = document.getElementById('accountSelect').value;
+      if (!linkedinAccountUuid) return;
+      state.linkedinAccountUuid = linkedinAccountUuid;
+
       const placeholder = '<option value="">Loading campaigns…</option>';
       document.getElementById('connectCampaignSelect').innerHTML = placeholder;
       document.getElementById('messageCampaignSelect').innerHTML = placeholder;
@@ -268,7 +283,7 @@
         const res = await fetch('/api/salesrobot/campaigns', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ srKey: state.srKey, linkedinAccountUuid: state.linkedinAccountUuid }),
+          body: JSON.stringify({ srKey: state.srKey, linkedinAccountUuid }),
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Failed to fetch campaigns');
