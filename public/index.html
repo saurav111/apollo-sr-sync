@@ -283,7 +283,7 @@
         const name    = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Unknown';
         const company = contact.organization_name || '';
         const title   = contact.title || '';
-        const note    = task.note || '';
+        const note    = task.standalone_outreach_task_message?.body_text || '';
 
         list.insertAdjacentHTML('beforeend', `
           <div class="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors fade-in">
@@ -292,7 +292,7 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-medium text-sm text-gray-900">${escHtml(name)}</span>
-                ${taskTypeBadge(task.task_type)}
+                ${taskTypeBadge(task.type)}
               </div>
               ${title || company ? `<p class="text-xs text-gray-500 mt-0.5">${escHtml([title, company].filter(Boolean).join(' · '))}</p>` : ''}
               <a href="${escHtml(contact.linkedin_url)}" target="_blank"
@@ -333,8 +333,8 @@
       for (const task of selected) {
         const contact  = task.contact || {};
         const name     = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
-        const taskType = task.task_type || '';
-        const message  = task.note || '';
+        const taskType = task.type || '';
+        const message  = task.standalone_outreach_task_message?.body_text || '';
 
         try {
           let res, data;
