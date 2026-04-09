@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Apollo → SalesRobot Sync</title>
+  <title>Apollo → LinkedIn Sync</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .step-inactive { opacity: 0.4; pointer-events: none; }
@@ -16,7 +16,6 @@
 </head>
 <body class="bg-gray-50 min-h-screen font-sans text-gray-800">
 
-  <!-- Header -->
   <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3">
     <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
       <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -24,7 +23,7 @@
       </svg>
     </div>
     <div>
-      <h1 class="font-semibold text-gray-900 leading-none">Apollo → SalesRobot</h1>
+      <h1 class="font-semibold text-gray-900 leading-none">Apollo → LinkedIn</h1>
       <p class="text-xs text-gray-500 mt-0.5">Execute LinkedIn tasks directly from Apollo</p>
     </div>
   </header>
@@ -42,22 +41,22 @@
           <label class="block text-sm font-medium text-gray-700 mb-1">Apollo API Key</label>
           <input id="apolloKey" type="text" autocomplete="off" spellcheck="false"
             placeholder="Paste your Apollo API key"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono" />
-          <p class="text-xs text-gray-400 mt-1">Found in Apollo → Settings → Integrations → API</p>
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+          <p class="text-xs text-gray-400 mt-1">Apollo → Settings → Integrations → API</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">SalesRobot API Key</label>
-          <input id="srKey" type="text" autocomplete="off" spellcheck="false"
-            placeholder="Paste your SalesRobot API key"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono" />
-          <p class="text-xs text-gray-400 mt-1">Found in SalesRobot → Settings → API Key</p>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Unipile DSN</label>
+          <input id="unipileDsn" type="text" autocomplete="off" spellcheck="false"
+            placeholder="e.g. api1.unipile.com:13111"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+          <p class="text-xs text-gray-400 mt-1">Unipile Dashboard → your DSN endpoint</p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">SalesRobot Webhook UUID</label>
-          <input id="srWebhookUuid" type="text" autocomplete="off" spellcheck="false"
-            placeholder="e.g. a1b2c3d4-e5f6-..."
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono" />
-          <p class="text-xs text-gray-400 mt-1">Found in SalesRobot → Settings → Integrations → Webhooks (Inbound)</p>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Unipile API Key</label>
+          <input id="unipileKey" type="text" autocomplete="off" spellcheck="false"
+            placeholder="Paste your Unipile access token"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+          <p class="text-xs text-gray-400 mt-1">Unipile Dashboard → Access Token</p>
         </div>
         <button id="connectBtn" onclick="connectAccounts()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
@@ -70,6 +69,25 @@
           </svg>
           <span id="step1SuccessText"></span>
         </div>
+        <!-- Connect LinkedIn account -->
+        <div id="connectLinkedInRow" class="hidden">
+          <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 flex items-center justify-between gap-3">
+            <span>No LinkedIn account connected in Unipile.</span>
+            <button onclick="connectLinkedIn()"
+              class="shrink-0 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+              <span id="connectLiBtnText">Connect LinkedIn</span>
+              <span id="connectLiSpinner" class="hidden w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            </button>
+          </div>
+          <p class="text-xs text-gray-400 mt-1.5">After connecting, click "Connect & Continue" again to refresh.</p>
+        </div>
+        <!-- Account selector (only shown if multiple LinkedIn accounts) -->
+        <div id="accountRow" class="hidden">
+          <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Account</label>
+          <select id="accountSelect" onchange="state.accountId = this.value"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </select>
+        </div>
         <p id="step1Error" class="text-sm text-red-500 hidden"></p>
       </div>
     </section>
@@ -81,12 +99,6 @@
         <h2 class="font-semibold text-gray-900">Fetch open LinkedIn tasks</h2>
       </div>
       <div class="space-y-4">
-        <div id="accountRow" class="hidden">
-          <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Account</label>
-          <select id="accountSelect" onchange="state.linkedinAccountUuid = this.value"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          </select>
-        </div>
         <button onclick="loadTasks()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
           <span id="loadTasksBtnText">Fetch Apollo Tasks</span>
@@ -102,7 +114,7 @@
       </div>
     </section>
 
-    <!-- Step 3: Preview & Execute -->
+    <!-- Step 3: Review & Execute -->
     <section id="step3" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 step-inactive">
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2">
@@ -158,10 +170,8 @@
   </main>
 
   <script>
-    // ── State ────────────────────────────────────────────────────────────────
-    let state = { apolloKey: '', srKey: '', webhookUuid: '', linkedinAccountUuid: '', tasks: [] };
+    let state = { apolloKey: '', unipileDsn: '', unipileKey: '', accountId: '', tasks: [] };
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
     function showError(id, msg) {
       const el = document.getElementById(id);
       el.textContent = msg;
@@ -195,36 +205,49 @@
     async function connectAccounts() {
       clearError('step1Error');
       const apolloKey   = document.getElementById('apolloKey').value.trim();
-      const srKey       = document.getElementById('srKey').value.trim();
-      const webhookUuid = document.getElementById('srWebhookUuid').value.trim();
-      if (!apolloKey || !srKey || !webhookUuid) return showError('step1Error', 'All three fields are required.');
+      const unipileDsn  = document.getElementById('unipileDsn').value.trim();
+      const unipileKey  = document.getElementById('unipileKey').value.trim();
+      if (!apolloKey || !unipileDsn || !unipileKey) return showError('step1Error', 'All three fields are required.');
 
       setLoading('connectBtnText', 'connectSpinner', true, 'Connecting…');
 
       try {
-        // Validate SR key by fetching accounts
-        const res = await fetch('/api/salesrobot/accounts', {
+        const res = await fetch('/api/unipile/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ srKey }),
+          body: JSON.stringify({ dsn: unipileDsn, apiKey: unipileKey }),
         });
         const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.message || data.error || 'SalesRobot auth failed — check your API key');
+        if (!res.ok) throw new Error(data.message || data.error || 'Unipile auth failed — check your DSN and API key');
 
-        state.apolloKey   = apolloKey;
-        state.srKey       = srKey;
-        state.webhookUuid = webhookUuid;
+        const accounts = (data.items || data.accounts || []).filter(a =>
+          (a.type || a.provider || '').toUpperCase() === 'LINKEDIN'
+        );
 
-        // Populate account selector; auto-select if only one account
-        const accounts = data.data?.data || [];
-        const sel = document.getElementById('accountSelect');
-        sel.innerHTML = accounts.map(a =>
-          `<option value="${a.uuid || a.linkedinAccountUuid}">${a.nameOnLinkedinAccount || a.profileUrl}</option>`
-        ).join('');
+        state.apolloKey  = apolloKey;
+        state.unipileDsn = unipileDsn;
+        state.unipileKey = unipileKey;
+
+        if (!accounts.length) {
+          // No LinkedIn accounts — show connect button
+          document.getElementById('connectLinkedInRow').classList.remove('hidden');
+          document.getElementById('accountRow').classList.add('hidden');
+          document.getElementById('step1SuccessText').textContent = 'Unipile connected — no LinkedIn account found yet.';
+          document.getElementById('step1Success').classList.remove('hidden');
+          return; // Don't advance to step 2 yet
+        }
+
+        document.getElementById('connectLinkedInRow').classList.add('hidden');
+
         if (accounts.length === 1) {
-          state.linkedinAccountUuid = sel.value;
+          state.accountId = accounts[0].id || accounts[0].account_id;
           document.getElementById('accountRow').classList.add('hidden');
         } else {
+          const sel = document.getElementById('accountSelect');
+          sel.innerHTML = accounts.map(a =>
+            `<option value="${a.id || a.account_id}">${a.name || a.username || a.id}</option>`
+          ).join('');
+          state.accountId = sel.value;
           document.getElementById('accountRow').classList.remove('hidden');
         }
 
@@ -233,7 +256,8 @@
         document.getElementById('connectBtnText').textContent = '✓ Connected';
         btn.onclick = null;
 
-        document.getElementById('step1SuccessText').textContent = 'Connected — SalesRobot and Apollo keys verified.';
+        document.getElementById('step1SuccessText').textContent =
+          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''} found.`;
         document.getElementById('step1Success').classList.remove('hidden');
 
         enableStep('step2');
@@ -241,6 +265,25 @@
         showError('step1Error', e.message);
       } finally {
         setLoading('connectBtnText', 'connectSpinner', false, 'Connect & Continue');
+      }
+    }
+
+    // ── Connect LinkedIn via hosted auth ──────────────────────────────────────
+    async function connectLinkedIn() {
+      setLoading('connectLiBtnText', 'connectLiSpinner', true, 'Generating link…');
+      try {
+        const res = await fetch('/api/unipile/connect-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dsn: state.unipileDsn, apiKey: state.unipileKey }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.message || data.error || 'Failed to generate connect URL');
+        window.open(data.url, '_blank');
+      } catch (e) {
+        showError('step1Error', e.message);
+      } finally {
+        setLoading('connectLiBtnText', 'connectLiSpinner', false, 'Connect LinkedIn');
       }
     }
 
@@ -277,12 +320,11 @@
       }
     }
 
-    // ── Render tasks ──────────────────────────────────────────────────────────
+    // ── Render task list ──────────────────────────────────────────────────────
     function renderTasks(tasks) {
       const list    = document.getElementById('taskList');
       const noTasks = document.getElementById('noTasks');
       const count   = document.getElementById('taskCount');
-
       list.innerHTML = '';
 
       const withLinkedIn    = tasks.filter(t => t.contact?.linkedin_url);
@@ -337,7 +379,7 @@
       document.querySelectorAll('#taskList input[type=checkbox]').forEach(cb => cb.checked = checked);
     }
 
-    // ── Step 3: Execute tasks ─────────────────────────────────────────────────
+    // ── Step 3: Execute ───────────────────────────────────────────────────────
     async function executeSelected() {
       clearError('step3Error');
       const checked = [...document.querySelectorAll('#taskList input[type=checkbox]:checked')];
@@ -354,36 +396,21 @@
         const name     = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
         const taskType = task.type || '';
         const message  = task.standalone_outreach_task_message?.body_text || '';
+        const endpoint = taskType.includes('connect') ? '/api/unipile/send-invite' : '/api/unipile/send-message';
 
         try {
-          let res, data;
-
-          if (taskType.includes('connect')) {
-            // Send connection request
-            res = await fetch('/api/salesrobot/connect', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                srKey: state.srKey,
-                linkedinAccountUuid: state.linkedinAccountUuid,
-                linkedinProfileUrl: contact.linkedin_url,
-                message,
-              }),
-            });
-          } else {
-            // Send message (message tasks + other)
-            res = await fetch('/api/salesrobot/message', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                webhookUuid: state.webhookUuid,
-                profileUrl: contact.linkedin_url,
-                message,
-              }),
-            });
-          }
-
-          data = await res.json();
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dsn: state.unipileDsn,
+              apiKey: state.unipileKey,
+              accountId: state.accountId,
+              linkedinUrl: contact.linkedin_url,
+              message,
+            }),
+          });
+          const data = await res.json();
           results.push({ name, taskType, success: data.success || res.ok, message: data.message });
         } catch (e) {
           results.push({ name, taskType, success: false, message: e.message });

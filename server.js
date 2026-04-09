@@ -17,7 +17,6 @@ function log(tag, data) {
   fs.appendFileSync(LOG_FILE, line);
 }
 
-// Request logger middleware
 app.use((req, res, next) => {
   if (req.path.startsWith('/api')) {
     log('REQ', { method: req.method, path: req.path });
@@ -25,12 +24,8 @@ app.use((req, res, next) => {
   next();
 });
 
-const SR_BASE    = 'https://api.boomtechinc.com';
-const SR_APP     = 'https://app.boomtechinc.com';
-const SR_WEBHOOK = 'https://app.salesrobot.co/public/webhooks';
 const APOLLO_BASE = 'https://api.apollo.io';
 
-// ── Safe JSON parser ─────────────────────────────────────────────────────────
 async function safeJson(r) {
   const text = await r.text();
   log('RAW_RESPONSE', { status: r.status, url: r.url, body: text.slice(0, 500) });
@@ -39,23 +34,25 @@ async function safeJson(r) {
   catch (e) { throw new Error(`Non-JSON response (HTTP ${r.status}): ${text.slice(0, 200)}`); }
 }
 
-// ── SalesRobot: list LinkedIn accounts ───────────────────────────────────────
-app.post('/api/salesrobot/accounts', async (req, res) => {
-  const { srKey } = req.body;
-  if (!srKey) return res.status(400).json({ error: 'Missing srKey' });
-  try {
-    const r = await fetch(
-      `${SR_BASE}/api/linkedinAccounts?page=1&size=50&searchTerm=&sort=id,desc`,
-      { headers: { 'X-API-KEY': srKey, 'Content-Type': 'application/json' } }
-    );
-    const data = await safeJson(r);
-    if (!r.ok) return res.status(r.status).json(data);
-    res.json(data);
-  } catch (e) {
-    log('ACCOUNTS_ERROR', { error: e.message });
-    res.status(500).json({ error: e.message });
-  }
-});
+function unipileBase(dsn) {
+  if (dsn.startsWith('http')) return dsn.replace(/\/$/, '');
+  return `https://${dsn}`;
+}
+
+function extractLinkedInIdentifier(url) {
+  const match = (url || '').match(/linkedin\.com\/in\/([^/?#]+)/);
+  return match ? match[1].replace(/\/$/, '') : null;
+}
+
+// Build multipart/form-data body without external deps
+function buildFormData(fields) {
+  const boundary = '----UnipileBoundary' + Math.random().toString(36).slice(2);
+  const parts = Object.entries(fields).map(([key, value]) =>
+    `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}`
+  );
+  const body = parts.join('\r\n') + `\r\n--${boundary}--`;
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+}
 
 // ── Apollo: fetch open LinkedIn tasks ────────────────────────────────────────
 app.post('/api/apollo/tasks', async (req, res) => {
@@ -84,61 +81,137 @@ app.post('/api/apollo/tasks', async (req, res) => {
   }
 });
 
-// ── SalesRobot: send connection request ──────────────────────────────────────
-// POST /api/linkedin/connection-request
-// Auth: Authorization header (raw API key)
-app.post('/api/salesrobot/connect', async (req, res) => {
-  const { srKey, linkedinAccountUuid, linkedinProfileUrl, message } = req.body;
-  if (!srKey || !linkedinAccountUuid || !linkedinProfileUrl) {
-    return res.status(400).json({ error: 'Missing params' });
-  }
-
-  const payload = { linkedinProfileUrl, linkedinAccountUuid, message: message || '' };
-  log('CONNECT_REQUEST', { linkedinProfileUrl, linkedinAccountUuid, message: message?.slice(0, 100) });
-
+// ── Unipile: list connected accounts ─────────────────────────────────────────
+app.post('/api/unipile/accounts', async (req, res) => {
+  const { dsn, apiKey } = req.body;
+  if (!dsn || !apiKey) return res.status(400).json({ error: 'Missing params' });
   try {
-    const r = await fetch(`${SR_BASE}/api/linkedin/connection-request`, {
-      method: 'POST',
-      headers: {
-        'Authorization': srKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+    const r = await fetch(`${unipileBase(dsn)}/api/v1/accounts`, {
+      headers: { 'X-API-KEY': apiKey, 'accept': 'application/json' },
     });
     const data = await safeJson(r);
-    log('SR_RESPONSE', { status: r.status, body: data });
     if (!r.ok) return res.status(r.status).json(data);
     res.json(data);
   } catch (e) {
-    log('SR_ERROR', { error: e.message });
+    log('UNIPILE_ERROR', { error: e.message });
     res.status(500).json({ error: e.message });
   }
 });
 
-// ── SalesRobot: send message to a connection ─────────────────────────────────
-// POST /public/webhooks/{uuid}/replyToProspect
-// Auth: webhook UUID in URL
-app.post('/api/salesrobot/message', async (req, res) => {
-  const { webhookUuid, profileUrl, message } = req.body;
-  if (!webhookUuid || !profileUrl) {
-    return res.status(400).json({ error: 'Missing params' });
-  }
-
-  const payload = { profileUrl, replyMessage: message || '' };
-  log('SEND_MESSAGE', { profileUrl, message: message?.slice(0, 100) });
-
+// ── Unipile: generate hosted auth URL to connect LinkedIn ─────────────────────
+app.post('/api/unipile/connect-url', async (req, res) => {
+  const { dsn, apiKey } = req.body;
+  if (!dsn || !apiKey) return res.status(400).json({ error: 'Missing params' });
+  const expiresOn = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   try {
-    const r = await fetch(`${SR_WEBHOOK}/${webhookUuid}/replyToProspect`, {
+    const r = await fetch(`${unipileBase(dsn)}/api/v1/hosted/accounts/link`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      headers: { 'X-API-KEY': apiKey, 'accept': 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'create',
+        providers: ['LINKEDIN'],
+        api_url: unipileBase(dsn),
+        expiresOn,
+      }),
     });
     const data = await safeJson(r);
-    log('SR_RESPONSE', { status: r.status, body: data });
     if (!r.ok) return res.status(r.status).json(data);
-    res.json({ success: true, ...data });
+    res.json(data);
   } catch (e) {
-    log('SR_ERROR', { error: e.message });
+    log('UNIPILE_ERROR', { error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Unipile: send connection request ─────────────────────────────────────────
+// Step 1: resolve LinkedIn URL → provider_id
+// Step 2: POST /api/v1/users/invite
+app.post('/api/unipile/send-invite', async (req, res) => {
+  const { dsn, apiKey, accountId, linkedinUrl, message } = req.body;
+  if (!dsn || !apiKey || !accountId || !linkedinUrl) {
+    return res.status(400).json({ error: 'Missing params' });
+  }
+  const identifier = extractLinkedInIdentifier(linkedinUrl);
+  if (!identifier) return res.status(400).json({ error: 'Could not parse LinkedIn URL' });
+
+  log('SEND_INVITE', { identifier, accountId, message: (message || '').slice(0, 100) });
+
+  try {
+    const base = unipileBase(dsn);
+
+    // Resolve profile
+    const profileR = await fetch(
+      `${base}/api/v1/users/${encodeURIComponent(identifier)}?account_id=${accountId}`,
+      { headers: { 'X-API-KEY': apiKey, 'accept': 'application/json' } }
+    );
+    const profile = await safeJson(profileR);
+    if (!profileR.ok) return res.status(profileR.status).json({ error: profile.message || 'Profile lookup failed' });
+
+    const providerId = profile.provider_id;
+    if (!providerId) return res.status(400).json({ error: 'No provider_id returned for this profile' });
+    log('PROFILE_RESOLVED', { identifier, providerId });
+
+    // Send invite
+    const inviteR = await fetch(`${base}/api/v1/users/invite`, {
+      method: 'POST',
+      headers: { 'X-API-KEY': apiKey, 'accept': 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify({ provider_id: providerId, account_id: accountId, message: message || '' }),
+    });
+    const inviteData = await safeJson(inviteR);
+    log('INVITE_RESPONSE', { status: inviteR.status, body: inviteData });
+    if (!inviteR.ok) return res.status(inviteR.status).json(inviteData);
+    res.json({ success: true, ...inviteData });
+  } catch (e) {
+    log('UNIPILE_ERROR', { error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Unipile: send direct message ──────────────────────────────────────────────
+// Step 1: resolve LinkedIn URL → provider_id
+// Step 2: POST /api/v1/chats (new chat with that person)
+app.post('/api/unipile/send-message', async (req, res) => {
+  const { dsn, apiKey, accountId, linkedinUrl, message } = req.body;
+  if (!dsn || !apiKey || !accountId || !linkedinUrl) {
+    return res.status(400).json({ error: 'Missing params' });
+  }
+  const identifier = extractLinkedInIdentifier(linkedinUrl);
+  if (!identifier) return res.status(400).json({ error: 'Could not parse LinkedIn URL' });
+
+  log('SEND_MESSAGE', { identifier, accountId, message: (message || '').slice(0, 100) });
+
+  try {
+    const base = unipileBase(dsn);
+
+    // Resolve profile
+    const profileR = await fetch(
+      `${base}/api/v1/users/${encodeURIComponent(identifier)}?account_id=${accountId}`,
+      { headers: { 'X-API-KEY': apiKey, 'accept': 'application/json' } }
+    );
+    const profile = await safeJson(profileR);
+    if (!profileR.ok) return res.status(profileR.status).json({ error: profile.message || 'Profile lookup failed' });
+
+    const providerId = profile.provider_id;
+    if (!providerId) return res.status(400).json({ error: 'No provider_id returned for this profile' });
+    log('PROFILE_RESOLVED', { identifier, providerId });
+
+    // Send message via multipart/form-data
+    const { body, contentType } = buildFormData({
+      account_id: accountId,
+      text: message || '',
+      attendees_ids: providerId,
+    });
+    const msgR = await fetch(`${base}/api/v1/chats`, {
+      method: 'POST',
+      headers: { 'X-API-KEY': apiKey, 'accept': 'application/json', 'content-type': contentType },
+      body,
+    });
+    const msgData = await safeJson(msgR);
+    log('MESSAGE_RESPONSE', { status: msgR.status, body: msgData });
+    if (!msgR.ok) return res.status(msgR.status).json(msgData);
+    res.json({ success: true, ...msgData });
+  } catch (e) {
+    log('UNIPILE_ERROR', { error: e.message });
     res.status(500).json({ error: e.message });
   }
 });
@@ -155,4 +228,4 @@ app.get('/api/logs', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Apollo → SalesRobot sync running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Apollo → Unipile sync running on http://localhost:${PORT}`));
