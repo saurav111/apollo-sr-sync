@@ -150,10 +150,19 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await safeJson(r);
-    log('SR_RESPONSE', { status: r.status, body: data });
-    if (!r.ok) return res.status(r.status).json(data);
-    res.json({ success: true, ...data });
+    const text = await r.text();
+    log('SR_RESPONSE', { status: r.status, url: r.url, body: text.slice(0, 200) });
+
+    if (!r.ok) {
+      let errData;
+      try { errData = JSON.parse(text); } catch { errData = { error: text || `HTTP ${r.status}` }; }
+      return res.status(r.status).json(errData);
+    }
+
+    // Webhook returns plain "Ok" on success — handle both JSON and plain text
+    let data = {};
+    try { data = JSON.parse(text); } catch { /* plain text response like "Ok" is fine */ }
+    res.json({ success: true, message: text, ...data });
   } catch (e) {
     log('SR_ERROR', { error: e.message });
     res.status(500).json({ error: e.message });
