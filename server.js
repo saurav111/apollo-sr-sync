@@ -130,10 +130,13 @@ app.post('/api/apollo/tasks', async (req, res) => {
   }
 });
 
-// ── SalesRobot: add a single prospect to a campaign ──────────────────────────
+// ── SalesRobot: add a single prospect via inbound webhook ────────────────────
+// Webhook URL: https://app.salesrobot.co/public/webhooks/{UUID}/campaign/addProspect
+// Auth is the UUID itself — no API key header needed.
+// Campaign identified by name. customColumns is a stringified JSON object.
 app.post('/api/salesrobot/add-prospect', async (req, res) => {
-  const { srKey, linkedinAccountUuid, campaignUuid, prospect } = req.body;
-  if (!srKey || !linkedinAccountUuid || !campaignUuid || !prospect) {
+  const { webhookUuid, campaignName, prospect } = req.body;
+  if (!webhookUuid || !campaignName || !prospect) {
     return res.status(400).json({ error: 'Missing params' });
   }
   if (!prospect.profileUrl) {
@@ -142,37 +145,32 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
   }
 
   const payload = {
-    profileUrl:   prospect.profileUrl   || '',
-    firstName:    prospect.firstName    || '',
-    lastName:     prospect.lastName     || '',
-    fullName:     prospect.fullName     || '',
-    emailId:      prospect.emailId      || '',
-    jobTitle:     prospect.jobTitle     || '',
-    companyName:  prospect.companyName  || '',
-    phoneNo:      '',
-    profilePhoto: '',
-    salesNavUrl:  null,
+    campaignName,
+    profileUrl:  prospect.profileUrl  || '',
+    firstName:   prospect.firstName   || '',
+    lastName:    prospect.lastName    || '',
+    emailId:     prospect.emailId     || '',
+    jobTitle:    prospect.jobTitle    || '',
+    companyName: prospect.companyName || '',
   };
 
   if (prospect.customMessage) {
-    payload.customMap = JSON.stringify({ customMessage: prospect.customMessage });
+    payload.customColumns = JSON.stringify({ customMessage: prospect.customMessage });
   }
 
-  log('ADD_PROSPECT', { campaignUuid, linkedinAccountUuid, prospect: payload });
+  const webhookUrl = `https://app.salesrobot.co/public/webhooks/${webhookUuid}/campaign/addProspect`;
+  log('ADD_PROSPECT', { webhookUrl, campaignName, prospect: payload });
 
   try {
-    const r = await fetch(
-      `${SR_BASE}/api/add-single-prospect?campaignUuid=${campaignUuid}&linkedinAccountUuid=${linkedinAccountUuid}`,
-      {
-        method: 'POST',
-        headers: { 'X-API-KEY': srKey, 'content-type': 'application/json;charset=UTF-8' },
-        body: JSON.stringify(payload),
-      }
-    );
+    const r = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
     const data = await safeJson(r);
     log('SR_RESPONSE', { status: r.status, body: data });
     if (!r.ok) return res.status(r.status).json(data);
-    res.json(data);
+    res.json({ success: true, ...data });
   } catch (e) {
     log('SR_ERROR', { error: e.message });
     res.status(500).json({ error: e.message });
