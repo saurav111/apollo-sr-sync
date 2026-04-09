@@ -25,20 +25,21 @@ app.use((req, res, next) => {
   next();
 });
 
-const SR_BASE = 'https://api.boomtechinc.com';
-const SR_APP  = 'https://app.boomtechinc.com';
+const SR_BASE    = 'https://api.boomtechinc.com';
+const SR_APP     = 'https://app.boomtechinc.com';
+const SR_WEBHOOK = 'https://app.salesrobot.co/public/webhooks';
 const APOLLO_BASE = 'https://api.apollo.io';
 
 // ── Safe JSON parser ─────────────────────────────────────────────────────────
 async function safeJson(r) {
   const text = await r.text();
   log('RAW_RESPONSE', { status: r.status, url: r.url, body: text.slice(0, 500) });
-  if (!text) throw new Error(`Empty response from SalesRobot (HTTP ${r.status})`);
+  if (!text) throw new Error(`Empty response (HTTP ${r.status})`);
   try { return JSON.parse(text); }
-  catch (e) { throw new Error(`SalesRobot returned non-JSON (HTTP ${r.status}): ${text.slice(0, 200)}`); }
+  catch (e) { throw new Error(`Non-JSON response (HTTP ${r.status}): ${text.slice(0, 200)}`); }
 }
 
-// ── SalesRobot: list LinkedIn accounts ──────────────────────────────────────
+// ── SalesRobot: list LinkedIn accounts ───────────────────────────────────────
 app.post('/api/salesrobot/accounts', async (req, res) => {
   const { srKey } = req.body;
   if (!srKey) return res.status(400).json({ error: 'Missing srKey' });
@@ -56,49 +57,6 @@ app.post('/api/salesrobot/accounts', async (req, res) => {
   }
 });
 
-// ── SalesRobot: list ALL campaigns (paginated) for a LinkedIn account ─────────
-app.post('/api/salesrobot/campaigns', async (req, res) => {
-  const { srKey, linkedinAccountUuid } = req.body;
-  if (!srKey || !linkedinAccountUuid) return res.status(400).json({ error: 'Missing params' });
-  try {
-    let page = 1;
-    const pageSize = 50;
-    let allCampaigns = [];
-    let totalPages = 1;
-
-    do {
-      const r = await fetch(
-        `${SR_APP}/api/campaigns?linkedinAccountUuid=${linkedinAccountUuid}&page=${page}&size=${pageSize}`,
-        { headers: { 'X-API-KEY': srKey, 'Content-Type': 'application/json' } }
-      );
-      const data = await safeJson(r);
-      if (!r.ok) return res.status(r.status).json(data);
-
-      const campaigns = data.data?.data || [];
-      allCampaigns = allCampaigns.concat(campaigns);
-
-      // Log all unique statuses on first page so we can see what values the API actually uses
-      if (page === 1) {
-        const statusSummary = campaigns.reduce((acc, c) => {
-          acc[c.campaignStatus] = (acc[c.campaignStatus] || 0) + 1;
-          return acc;
-        }, {});
-        log('CAMPAIGN_STATUSES', { page, totalElements: data.data?.totalElements, statusSummary });
-      }
-
-      const totalElements = data.data?.totalElements || 0;
-      totalPages = Math.ceil(totalElements / pageSize);
-      page++;
-    } while (page <= totalPages && page <= 10); // cap at 500 campaigns
-
-    log('CAMPAIGNS_FETCHED', { totalFetched: allCampaigns.length });
-    res.json({ success: true, data: { data: allCampaigns } });
-  } catch (e) {
-    log('CAMPAIGNS_ERROR', { error: e.message });
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ── Apollo: fetch open LinkedIn tasks ────────────────────────────────────────
 app.post('/api/apollo/tasks', async (req, res) => {
   const { apolloKey } = req.body;
@@ -112,11 +70,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
         'Cache-Control': 'no-cache',
       },
       body: JSON.stringify({
-        task_types: [
-          'linkedin_step_message',
-          'linkedin_step_connect',
-          'linkedin_step_other',
-        ],
+        task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
         open_factor_names: ['task_types'],
         per_page: 100,
         page: 1,
@@ -130,39 +84,51 @@ app.post('/api/apollo/tasks', async (req, res) => {
   }
 });
 
-// ── SalesRobot: add a single prospect via inbound webhook ────────────────────
-// Webhook URL: https://app.salesrobot.co/public/webhooks/{UUID}/campaign/addProspect
-// Auth is the UUID itself — no API key header needed.
-// Campaign identified by name. customColumns is a stringified JSON object.
-app.post('/api/salesrobot/add-prospect', async (req, res) => {
-  const { webhookUuid, campaignName, prospect } = req.body;
-  if (!webhookUuid || !campaignName || !prospect) {
+// ── SalesRobot: send connection request ──────────────────────────────────────
+// POST /api/linkedin/connection-request
+// Auth: Authorization header (raw API key)
+app.post('/api/salesrobot/connect', async (req, res) => {
+  const { srKey, linkedinAccountUuid, linkedinProfileUrl, message } = req.body;
+  if (!srKey || !linkedinAccountUuid || !linkedinProfileUrl) {
     return res.status(400).json({ error: 'Missing params' });
   }
-  if (!prospect.profileUrl) {
-    log('SKIP', { reason: 'no_linkedin_url', name: prospect.fullName, email: prospect.emailId });
-    return res.status(400).json({ error: 'Prospect must have a LinkedIn profileUrl' });
-  }
 
-  const payload = {
-    campaignName,
-    profileUrl:  prospect.profileUrl  || '',
-    firstName:   prospect.firstName   || '',
-    lastName:    prospect.lastName    || '',
-    emailId:     prospect.emailId     || '',
-    jobTitle:    prospect.jobTitle    || '',
-    companyName: prospect.companyName || '',
-  };
-
-  if (prospect.customMessage) {
-    payload.customColumns = JSON.stringify({ customMessage: prospect.customMessage });
-  }
-
-  const webhookUrl = `https://app.salesrobot.co/public/webhooks/${webhookUuid}/campaign/addProspect`;
-  log('ADD_PROSPECT', { webhookUrl, campaignName, prospect: payload });
+  const payload = { linkedinProfileUrl, linkedinAccountUuid, message: message || '' };
+  log('CONNECT_REQUEST', { linkedinProfileUrl, linkedinAccountUuid, message: message?.slice(0, 100) });
 
   try {
-    const r = await fetch(webhookUrl, {
+    const r = await fetch(`${SR_BASE}/api/linkedin/connection-request`, {
+      method: 'POST',
+      headers: {
+        'Authorization': srKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await safeJson(r);
+    log('SR_RESPONSE', { status: r.status, body: data });
+    if (!r.ok) return res.status(r.status).json(data);
+    res.json(data);
+  } catch (e) {
+    log('SR_ERROR', { error: e.message });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── SalesRobot: send message to a connection ─────────────────────────────────
+// POST /public/webhooks/{uuid}/replyToProspect
+// Auth: webhook UUID in URL
+app.post('/api/salesrobot/message', async (req, res) => {
+  const { webhookUuid, profileUrl, message } = req.body;
+  if (!webhookUuid || !profileUrl) {
+    return res.status(400).json({ error: 'Missing params' });
+  }
+
+  const payload = { profileUrl, replyMessage: message || '' };
+  log('SEND_MESSAGE', { profileUrl, message: message?.slice(0, 100) });
+
+  try {
+    const r = await fetch(`${SR_WEBHOOK}/${webhookUuid}/replyToProspect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -181,7 +147,6 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
 app.get('/api/logs', (req, res) => {
   try {
     const content = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8') : '(no logs yet)';
-    // Return last 200 lines
     const lines = content.trim().split('\n').slice(-200);
     res.json({ lines });
   } catch (e) {
