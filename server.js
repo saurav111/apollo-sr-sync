@@ -130,7 +130,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
   }
 });
 
-// ── SalesRobot: add a single prospect to a campaign ──────────────────────────
+// ── SalesRobot: add a single prospect to a campaign (via add-from-csv) ───────
 app.post('/api/salesrobot/add-prospect', async (req, res) => {
   const { srKey, linkedinAccountUuid, campaignUuid, prospect } = req.body;
   if (!srKey || !linkedinAccountUuid || !campaignUuid || !prospect) {
@@ -141,32 +141,33 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
     return res.status(400).json({ error: 'Prospect must have a LinkedIn profileUrl' });
   }
 
-  const payload = {
-    profileUrl:   prospect.profileUrl   || '',
-    firstName:    prospect.firstName    || '',
-    lastName:     prospect.lastName     || '',
-    fullName:     prospect.fullName     || '',
-    emailId:      prospect.emailId      || '',
-    jobTitle:     prospect.jobTitle     || '',
-    companyName:  prospect.companyName  || '',
-    phoneNo:      '',
-    profilePhoto: '',
-    salesNavUrl:  null,
-  };
+  const prospectData = [
+    { name: 'profileUrl',  values: [prospect.profileUrl  || ''] },
+    { name: 'firstName',   values: [prospect.firstName   || ''] },
+    { name: 'lastName',    values: [prospect.lastName    || ''] },
+    { name: 'fullName',    values: [prospect.fullName    || ''] },
+    { name: 'emailId',     values: [prospect.emailId     || ''] },
+    { name: 'jobTitle',    values: [prospect.jobTitle    || ''] },
+    { name: 'companyName', values: [prospect.companyName || ''] },
+  ];
 
-  // Pass customMessage as a custom column if present
   if (prospect.customMessage) {
-    payload.customColumns = JSON.stringify({ customMessage: prospect.customMessage });
+    prospectData.push({ name: 'customColumns', values: [prospect.customMessage] });
   }
+
+  const payload = {
+    prospectData,
+    dontAddIfInAnotherLinkedinAccountForMyUser: true,
+  };
 
   log('ADD_PROSPECT', { campaignUuid, linkedinAccountUuid, prospect: payload });
 
   try {
     const r = await fetch(
-      `${SR_BASE}/api/add-single-prospect?campaignUuid=${campaignUuid}&linkedinAccountUuid=${linkedinAccountUuid}`,
+      `${SR_BASE}/api/add-from-csv?linkedinAccountUuid=${linkedinAccountUuid}&campaignUuid=${campaignUuid}`,
       {
         method: 'POST',
-        headers: { 'X-API-KEY': srKey, 'content-type': 'application/json;charset=UTF-8' },
+        headers: { 'X-API-KEY': srKey, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       }
     );
