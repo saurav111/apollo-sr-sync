@@ -209,10 +209,10 @@
         const res = await fetch('/api/unipile/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dsn: unipileDsn, apiKey: unipileKey }),
+          body: JSON.stringify({}),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || data.error || 'Unipile auth failed — check your DSN and API key');
+        if (!res.ok) throw new Error(data.message || data.error || 'Unipile auth failed');
 
         const accounts = (data.items || data.accounts || []).filter(a =>
           (a.type || a.provider || '').toUpperCase() === 'LINKEDIN'

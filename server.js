@@ -87,7 +87,6 @@ app.post('/api/apollo/tasks', async (req, res) => {
 app.post('/api/unipile/accounts', async (req, res) => {
   // dsn and apiKey are hardcoded server-side
   const dsn = UNIPILE_DSN, apiKey = UNIPILE_KEY;
-  if (!dsn || !apiKey) return res.status(400).json({ error: 'Missing params' });
   try {
     const r = await fetch(`${unipileBase(dsn)}/api/v1/accounts`, {
       headers: { 'X-API-KEY': apiKey, 'accept': 'application/json' },
@@ -105,7 +104,6 @@ app.post('/api/unipile/accounts', async (req, res) => {
 app.post('/api/unipile/connect-url', async (req, res) => {
   // dsn and apiKey are hardcoded server-side
   const dsn = UNIPILE_DSN, apiKey = UNIPILE_KEY;
-  if (!dsn || !apiKey) return res.status(400).json({ error: 'Missing params' });
   const expiresOn = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   try {
     const r = await fetch(`${unipileBase(dsn)}/api/v1/hosted/accounts/link`, {
