@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Apollo → LinkedIn Sync</title>
+  <title>Apollo → SalesRobot Sync</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .step-inactive { opacity: 0.4; pointer-events: none; }
-    .badge-connect  { background: #dbeafe; color: #1d4ed8; }
-    .badge-message  { background: #dcfce7; color: #15803d; }
-    .badge-other    { background: #fef9c3; color: #a16207; }
+    .badge-connect { background: #dbeafe; color: #1d4ed8; }
+    .badge-message { background: #dcfce7; color: #15803d; }
+    .badge-other   { background: #fef9c3; color: #a16207; }
     .fade-in { animation: fadeIn .25s ease; }
     @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
   </style>
@@ -23,34 +23,12 @@
       </svg>
     </div>
     <div>
-      <h1 class="font-semibold text-gray-900 leading-none">Apollo → LinkedIn</h1>
-      <p class="text-xs text-gray-500 mt-0.5">Execute LinkedIn tasks directly from Apollo</p>
+      <h1 class="font-semibold text-gray-900 leading-none">Apollo → SalesRobot</h1>
+      <p class="text-xs text-gray-500 mt-0.5">Sync LinkedIn tasks from Apollo into SalesRobot campaigns</p>
     </div>
   </header>
 
   <main class="max-w-2xl mx-auto px-4 py-10 space-y-6">
-
-    <!-- Connect LinkedIn -->
-    <section class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-      <div class="flex items-center justify-between">
-        <div>
-          <h2 class="font-semibold text-gray-900">LinkedIn Account</h2>
-          <p class="text-sm text-gray-500 mt-0.5">Connect your LinkedIn account to send messages and connection requests</p>
-        </div>
-        <button onclick="connectLinkedIn()"
-          class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-          <span id="connectLiBtnText">Connect LinkedIn</span>
-          <span id="connectLiSpinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-        </button>
-      </div>
-      <div id="connectLiStatus" class="hidden flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 mt-3 fade-in">
-        <svg class="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-        </svg>
-        <span id="connectLiStatusText"></span>
-      </div>
-      <p id="connectLiError" class="text-sm text-red-500 hidden mt-3"></p>
-    </section>
 
     <!-- Step 1: API Keys -->
     <section id="step1" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
@@ -66,6 +44,20 @@
             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
           <p class="text-xs text-gray-400 mt-1">Apollo → Settings → Integrations → API</p>
         </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">SalesRobot API Key</label>
+          <input id="srKey" type="text" autocomplete="off" spellcheck="false"
+            placeholder="Paste your SalesRobot API key"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+          <p class="text-xs text-gray-400 mt-1">SalesRobot → Settings → API Key</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">SalesRobot Webhook UUID</label>
+          <input id="srWebhookUuid" type="text" autocomplete="off" spellcheck="false"
+            placeholder="e.g. 59972011-eb19-400f-97d3-6fc9e0be3d07"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+          <p class="text-xs text-gray-400 mt-1">SalesRobot → Settings → Integrations → Webhooks (Inbound)</p>
+        </div>
         <button id="connectBtn" onclick="connectAccounts()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
           <span id="connectBtnText">Connect & Continue</span>
@@ -77,24 +69,37 @@
           </svg>
           <span id="step1SuccessText"></span>
         </div>
-        <!-- Account selector (only shown if multiple LinkedIn accounts) -->
-        <div id="accountRow" class="hidden">
-          <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Account</label>
-          <select id="accountSelect" onchange="state.accountId = this.value"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          </select>
-        </div>
         <p id="step1Error" class="text-sm text-red-500 hidden"></p>
       </div>
     </section>
 
-    <!-- Step 2: Fetch Tasks -->
+    <!-- Step 2: Select Campaigns -->
     <section id="step2" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 step-inactive">
       <div class="flex items-center gap-2 mb-5">
         <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
-        <h2 class="font-semibold text-gray-900">Fetch open LinkedIn tasks</h2>
+        <h2 class="font-semibold text-gray-900">Select campaigns</h2>
       </div>
       <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Connection Request campaign
+            <span class="text-xs font-normal text-gray-400 ml-1">— for linkedin_step_connect tasks</span>
+          </label>
+          <select id="connectCampaignSelect"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— select campaign —</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Message campaign
+            <span class="text-xs font-normal text-gray-400 ml-1">— for linkedin_step_message tasks</span>
+          </label>
+          <select id="messageCampaignSelect"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— select campaign —</option>
+          </select>
+        </div>
         <button onclick="loadTasks()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
           <span id="loadTasksBtnText">Fetch Apollo Tasks</span>
@@ -115,7 +120,7 @@
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2">
           <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">3</span>
-          <h2 class="font-semibold text-gray-900">Review & execute</h2>
+          <h2 class="font-semibold text-gray-900">Review & sync</h2>
         </div>
         <div class="flex items-center gap-2">
           <button onclick="selectAll(true)" class="text-xs text-indigo-600 hover:underline">Select all</button>
@@ -135,9 +140,9 @@
       </div>
 
       <div class="mt-5 pt-4 border-t border-gray-100 flex items-center gap-3">
-        <button onclick="executeSelected()"
+        <button onclick="syncSelected()"
           class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
-          <span id="syncBtnText">Execute Selected Tasks</span>
+          <span id="syncBtnText">Sync Selected to SalesRobot</span>
           <span id="syncSpinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
         </button>
         <button onclick="loadTasks()" title="Refresh"
@@ -154,7 +159,7 @@
     <section id="step4" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hidden fade-in">
       <div class="flex items-center gap-2 mb-4">
         <span class="w-6 h-6 rounded-full bg-green-500 text-white text-xs flex items-center justify-center">✓</span>
-        <h2 class="font-semibold text-gray-900">Done</h2>
+        <h2 class="font-semibold text-gray-900">Sync complete</h2>
       </div>
       <div id="syncResults" class="space-y-2 text-sm"></div>
       <button onclick="resetStep3()"
@@ -166,7 +171,12 @@
   </main>
 
   <script>
-    let state = { apolloKey: '', accountId: '', tasks: [] };
+    let state = {
+      apolloKey: '', srKey: '', webhookUuid: '',
+      linkedinAccountUuid: '',
+      connectCampaignName: '', messageCampaignName: '',
+      tasks: [],
+    };
 
     function showError(id, msg) {
       const el = document.getElementById(id);
@@ -197,53 +207,65 @@
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // ── Step 1: Connect ───────────────────────────────────────────────────────
+    // ── Step 1: Connect & load campaigns ─────────────────────────────────────
     async function connectAccounts() {
       clearError('step1Error');
-      const apolloKey = document.getElementById('apolloKey').value.trim();
-      if (!apolloKey) return showError('step1Error', 'Apollo API key is required.');
+      const apolloKey   = document.getElementById('apolloKey').value.trim();
+      const srKey       = document.getElementById('srKey').value.trim();
+      const webhookUuid = document.getElementById('srWebhookUuid').value.trim();
+      if (!apolloKey || !srKey || !webhookUuid) return showError('step1Error', 'All three fields are required.');
 
       setLoading('connectBtnText', 'connectSpinner', true, 'Connecting…');
 
       try {
-        const res = await fetch('/api/unipile/accounts', {
+        // Validate SR key + fetch accounts
+        const accRes = await fetch('/api/salesrobot/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ srKey }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || data.error || 'Unipile auth failed');
+        const accData = await accRes.json();
+        if (!accRes.ok || !accData.success) throw new Error(accData.message || accData.error || 'SalesRobot auth failed');
 
-        const accounts = (data.items || data.accounts || []).filter(a =>
-          (a.type || a.provider || '').toUpperCase() === 'LINKEDIN'
-        );
+        const accounts = accData.data?.data || [];
+        if (!accounts.length) throw new Error('No LinkedIn accounts found in SalesRobot');
 
-        state.apolloKey = apolloKey;
+        state.apolloKey   = apolloKey;
+        state.srKey       = srKey;
+        state.webhookUuid = webhookUuid;
 
-        if (!accounts.length) {
-          document.getElementById('accountRow').classList.add('hidden');
-          throw new Error('No LinkedIn account connected in Unipile — use the "Connect LinkedIn" button above first.');
-        }
+        // Use first account (most users have one)
+        const account = accounts[0];
+        state.linkedinAccountUuid = account.uuid || account.linkedinAccountUuid;
 
-        if (accounts.length === 1) {
-          state.accountId = accounts[0].id || accounts[0].account_id;
-          document.getElementById('accountRow').classList.add('hidden');
-        } else {
-          const sel = document.getElementById('accountSelect');
-          sel.innerHTML = accounts.map(a =>
-            `<option value="${a.id || a.account_id}">${a.name || a.username || a.id}</option>`
-          ).join('');
-          state.accountId = sel.value;
-          document.getElementById('accountRow').classList.remove('hidden');
-        }
+        // Fetch campaigns for that account
+        const campRes = await fetch('/api/salesrobot/campaigns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ srKey, linkedinAccountUuid: state.linkedinAccountUuid }),
+        });
+        const campData = await campRes.json();
+        if (!campRes.ok || !campData.success) throw new Error(campData.message || campData.error || 'Failed to fetch campaigns');
 
+        const campaigns = campData.data?.data || [];
+        const options = campaigns.map(c => {
+          const icons = { STARTED: '▶', PAUSED: '⏸' };
+          const icon = icons[c.campaignStatus] || '•';
+          return `<option value="${escHtml(c.name)}">${icon} ${escHtml(c.name)} (${c.campaignStatus})</option>`;
+        }).join('');
+        const placeholder = '<option value="">— select campaign —</option>';
+
+        document.getElementById('connectCampaignSelect').innerHTML = placeholder + options;
+        document.getElementById('messageCampaignSelect').innerHTML = placeholder + options;
+
+        // Success state
         const btn = document.getElementById('connectBtn');
         btn.className = btn.className.replace('bg-indigo-600 hover:bg-indigo-700', 'bg-green-600 hover:bg-green-600 cursor-default');
         document.getElementById('connectBtnText').textContent = '✓ Connected';
         btn.onclick = null;
 
         document.getElementById('step1SuccessText').textContent =
-          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''} found.`;
+          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''}, ${campaigns.length} campaigns loaded.`;
         document.getElementById('step1Success').classList.remove('hidden');
 
         enableStep('step2');
@@ -254,77 +276,20 @@
       }
     }
 
-    // ── Connect LinkedIn via hosted auth ──────────────────────────────────────
-    async function connectLinkedIn() {
-      clearError('connectLiError');
-      setLoading('connectLiBtnText', 'connectLiSpinner', true, 'Generating link…');
-      try {
-        const res = await fetch('/api/unipile/connect-url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.url) throw new Error(data.message || data.error || 'Failed to generate connect URL');
-
-        const popup = window.open(data.url, '_blank');
-        setLoading('connectLiBtnText', 'connectLiSpinner', true, 'Waiting for LinkedIn…');
-        pollForLinkedInAccount(popup);
-      } catch (e) {
-        showError('connectLiError', e.message);
-        setLoading('connectLiBtnText', 'connectLiSpinner', false, 'Connect LinkedIn');
-      }
-    }
-
-    async function pollForLinkedInAccount(popup) {
-      const maxAttempts = 100; // ~5 min at 3s intervals
-      let attempts = 0;
-
-      const interval = setInterval(async () => {
-        attempts++;
-
-        // Stop if popup was closed without success or timeout reached
-        if ((popup && popup.closed) || attempts >= maxAttempts) {
-          clearInterval(interval);
-          setLoading('connectLiBtnText', 'connectLiSpinner', false, 'Connect LinkedIn');
-          return;
-        }
-
-        try {
-          const res = await fetch('/api/unipile/accounts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          });
-          if (!res.ok) return;
-          const data = await res.json();
-          const accounts = (data.items || data.accounts || []).filter(a =>
-            (a.type || a.provider || '').toUpperCase() === 'LINKEDIN'
-          );
-
-          if (accounts.length > 0) {
-            clearInterval(interval);
-            if (popup && !popup.closed) popup.close();
-
-            // Show success state
-            const name = accounts[0].name || accounts[0].username || 'LinkedIn account';
-            const btn = document.getElementById('connectLiBtnText').closest('button');
-            btn.className = btn.className.replace('bg-indigo-600 hover:bg-indigo-700', 'bg-green-600 hover:bg-green-600 cursor-default');
-            document.getElementById('connectLiBtnText').textContent = '✓ Connected';
-            document.getElementById('connectLiSpinner').classList.add('hidden');
-            btn.onclick = null;
-
-            document.getElementById('connectLiStatusText').textContent = `${name} connected successfully.`;
-            document.getElementById('connectLiStatus').classList.remove('hidden');
-          }
-        } catch (_) { /* ignore transient errors during polling */ }
-      }, 3000);
-    }
-
     // ── Step 2: Fetch Apollo tasks ────────────────────────────────────────────
     async function loadTasks() {
       clearError('step2Error');
       clearError('step3Error');
+
+      const connectCampaign = document.getElementById('connectCampaignSelect').value;
+      const messageCampaign = document.getElementById('messageCampaignSelect').value;
+      if (!connectCampaign || !messageCampaign) {
+        return showError('step2Error', 'Please select both campaigns before fetching tasks.');
+      }
+
+      state.connectCampaignName = connectCampaign;
+      state.messageCampaignName = messageCampaign;
+
       setLoading('loadTasksBtnText', 'loadTasksSpinner', true, 'Fetching…');
 
       try {
@@ -343,7 +308,7 @@
         const withLinkedIn = tasks.filter(t => t.contact?.linkedin_url).length;
         document.getElementById('step2SuccessText').textContent = tasks.length === 0
           ? 'No open LinkedIn tasks found in Apollo.'
-          : `${tasks.length} task${tasks.length !== 1 ? 's' : ''} fetched — ${withLinkedIn} ready to execute${tasks.length - withLinkedIn > 0 ? `, ${tasks.length - withLinkedIn} skipped (no LinkedIn URL)` : ''}.`;
+          : `${tasks.length} task${tasks.length !== 1 ? 's' : ''} fetched — ${withLinkedIn} ready to sync.`;
         document.getElementById('step2Success').classList.remove('hidden');
 
         enableStep('step3');
@@ -354,7 +319,7 @@
       }
     }
 
-    // ── Render task list ──────────────────────────────────────────────────────
+    // ── Render tasks ──────────────────────────────────────────────────────────
     function renderTasks(tasks) {
       const list    = document.getElementById('taskList');
       const noTasks = document.getElementById('noTasks');
@@ -379,6 +344,9 @@
         const company = contact.organization_name || '';
         const title   = contact.title || '';
         const note    = task.standalone_outreach_task_message?.body_text || '';
+        const campaignName = (task.type || '').includes('connect')
+          ? state.connectCampaignName
+          : state.messageCampaignName;
 
         list.insertAdjacentHTML('beforeend', `
           <div class="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors fade-in">
@@ -388,6 +356,7 @@
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-medium text-sm text-gray-900">${escHtml(name)}</span>
                 ${taskTypeBadge(task.type)}
+                <span class="text-xs text-gray-400">→ ${escHtml(campaignName)}</span>
               </div>
               ${title || company ? `<p class="text-xs text-gray-500 mt-0.5">${escHtml([title, company].filter(Boolean).join(' · '))}</p>` : ''}
               <a href="${escHtml(contact.linkedin_url)}" target="_blank"
@@ -413,33 +382,46 @@
       document.querySelectorAll('#taskList input[type=checkbox]').forEach(cb => cb.checked = checked);
     }
 
-    // ── Step 3: Execute ───────────────────────────────────────────────────────
-    async function executeSelected() {
+    // ── Step 3: Sync to SalesRobot ────────────────────────────────────────────
+    async function syncSelected() {
       clearError('step3Error');
       const checked = [...document.querySelectorAll('#taskList input[type=checkbox]:checked')];
-      if (!checked.length) return showError('step3Error', 'Select at least one task to execute.');
+      if (!checked.length) return showError('step3Error', 'Select at least one task to sync.');
 
       const withLinkedIn = state.tasks.filter(t => t.contact?.linkedin_url);
       const selected = checked.map(cb => withLinkedIn[parseInt(cb.dataset.index)]).filter(Boolean);
 
-      setLoading('syncBtnText', 'syncSpinner', true, `Executing ${selected.length}…`);
+      setLoading('syncBtnText', 'syncSpinner', true, `Syncing ${selected.length}…`);
 
       const results = [];
       for (const task of selected) {
-        const contact  = task.contact || {};
-        const name     = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
-        const taskType = task.type || '';
-        const message  = task.standalone_outreach_task_message?.body_text || '';
-        const endpoint = taskType.includes('connect') ? '/api/unipile/send-invite' : '/api/unipile/send-message';
+        const contact      = task.contact || {};
+        const name         = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
+        const taskType     = task.type || '';
+        const customMessage = task.standalone_outreach_task_message?.body_text || '';
+        const campaignName = taskType.includes('connect')
+          ? state.connectCampaignName
+          : state.messageCampaignName;
+
+        const prospect = {
+          profileUrl:    contact.linkedin_url,
+          firstName:     contact.first_name   || '',
+          lastName:      contact.last_name    || '',
+          fullName:      contact.name         || name,
+          emailId:       contact.email        || '',
+          jobTitle:      contact.title        || '',
+          companyName:   contact.organization_name || '',
+          customMessage,
+        };
 
         try {
-          const res = await fetch(endpoint, {
+          const res = await fetch('/api/salesrobot/add-prospect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              accountId: state.accountId,
-              linkedinUrl: contact.linkedin_url,
-              message,
+              webhookUuid: state.webhookUuid,
+              campaignName,
+              prospect,
             }),
           });
           const data = await res.json();
@@ -449,7 +431,7 @@
         }
       }
 
-      setLoading('syncBtnText', 'syncSpinner', false, 'Execute Selected Tasks');
+      setLoading('syncBtnText', 'syncSpinner', false, 'Sync Selected to SalesRobot');
       showResults(results);
     }
 
@@ -466,7 +448,7 @@
         <div class="flex gap-4 mb-4">
           <div class="flex-1 bg-green-50 border border-green-100 rounded-xl p-3 text-center">
             <p class="text-2xl font-bold text-green-600">${ok}</p>
-            <p class="text-xs text-green-700">Executed successfully</p>
+            <p class="text-xs text-green-700">Added to SalesRobot</p>
           </div>
           ${err ? `<div class="flex-1 bg-red-50 border border-red-100 rounded-xl p-3 text-center">
             <p class="text-2xl font-bold text-red-500">${err}</p>
