@@ -24,7 +24,9 @@ app.use((req, res, next) => {
   next();
 });
 
-const APOLLO_BASE = 'https://api.apollo.io';
+const APOLLO_BASE    = 'https://api.apollo.io';
+const UNIPILE_DSN    = 'api4.unipile.com:13477';
+const UNIPILE_KEY    = 'unBu0CqB.ukGhV7E79Du/7RjpicQaS919vaSkpK0qmEnNWp5ydPU=';
 
 async function safeJson(r) {
   const text = await r.text();
@@ -83,7 +85,8 @@ app.post('/api/apollo/tasks', async (req, res) => {
 
 // ── Unipile: list connected accounts ─────────────────────────────────────────
 app.post('/api/unipile/accounts', async (req, res) => {
-  const { dsn, apiKey } = req.body;
+  // dsn and apiKey are hardcoded server-side
+  const dsn = UNIPILE_DSN, apiKey = UNIPILE_KEY;
   if (!dsn || !apiKey) return res.status(400).json({ error: 'Missing params' });
   try {
     const r = await fetch(`${unipileBase(dsn)}/api/v1/accounts`, {
@@ -100,7 +103,8 @@ app.post('/api/unipile/accounts', async (req, res) => {
 
 // ── Unipile: generate hosted auth URL to connect LinkedIn ─────────────────────
 app.post('/api/unipile/connect-url', async (req, res) => {
-  const { dsn, apiKey } = req.body;
+  // dsn and apiKey are hardcoded server-side
+  const dsn = UNIPILE_DSN, apiKey = UNIPILE_KEY;
   if (!dsn || !apiKey) return res.status(400).json({ error: 'Missing params' });
   const expiresOn = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   try {
@@ -127,7 +131,8 @@ app.post('/api/unipile/connect-url', async (req, res) => {
 // Step 1: resolve LinkedIn URL → provider_id
 // Step 2: POST /api/v1/users/invite
 app.post('/api/unipile/send-invite', async (req, res) => {
-  const { dsn, apiKey, accountId, linkedinUrl, message } = req.body;
+  const { accountId, linkedinUrl, message } = req.body;
+  const dsn = UNIPILE_DSN, apiKey = UNIPILE_KEY;
   if (!dsn || !apiKey || !accountId || !linkedinUrl) {
     return res.status(400).json({ error: 'Missing params' });
   }
@@ -171,7 +176,8 @@ app.post('/api/unipile/send-invite', async (req, res) => {
 // Step 1: resolve LinkedIn URL → provider_id
 // Step 2: POST /api/v1/chats (new chat with that person)
 app.post('/api/unipile/send-message', async (req, res) => {
-  const { dsn, apiKey, accountId, linkedinUrl, message } = req.body;
+  const { accountId, linkedinUrl, message } = req.body;
+  const dsn = UNIPILE_DSN, apiKey = UNIPILE_KEY;
   if (!dsn || !apiKey || !accountId || !linkedinUrl) {
     return res.status(400).json({ error: 'Missing params' });
   }
