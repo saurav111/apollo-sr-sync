@@ -88,13 +88,12 @@ app.post('/api/apollo/tasks', async (req, res) => {
 // POST /api/linkedin/connection-request
 // Auth: Authorization header (raw API key)
 app.post('/api/salesrobot/connect', async (req, res) => {
-  const { srKey, linkedinProfileUrl, message, linkedinAccountUuid } = req.body;
-  if (!srKey || !linkedinProfileUrl) {
+  const { srKey, linkedinAccountUuid, linkedinProfileUrl, message } = req.body;
+  if (!srKey || !linkedinAccountUuid || !linkedinProfileUrl) {
     return res.status(400).json({ error: 'Missing params' });
   }
 
-  const payload = { linkedinProfileUrl, message: message || '' };
-  if (linkedinAccountUuid) payload.linkedinAccountUuid = linkedinAccountUuid;
+  const payload = { linkedinProfileUrl, linkedinAccountUuid, message: message || '' };
   log('CONNECT_REQUEST', { linkedinProfileUrl, linkedinAccountUuid, message: message?.slice(0, 100) });
 
   try {

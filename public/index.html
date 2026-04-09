@@ -81,6 +81,12 @@
         <h2 class="font-semibold text-gray-900">Fetch open LinkedIn tasks</h2>
       </div>
       <div class="space-y-4">
+        <div id="accountRow" class="hidden">
+          <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Account</label>
+          <select id="accountSelect" onchange="state.linkedinAccountUuid = this.value"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </select>
+        </div>
         <button onclick="loadTasks()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
           <span id="loadTasksBtnText">Fetch Apollo Tasks</span>
@@ -153,7 +159,7 @@
 
   <script>
     // ── State ────────────────────────────────────────────────────────────────
-    let state = { apolloKey: '', srKey: '', webhookUuid: '', tasks: [] };
+    let state = { apolloKey: '', srKey: '', webhookUuid: '', linkedinAccountUuid: '', tasks: [] };
 
     // ── Helpers ──────────────────────────────────────────────────────────────
     function showError(id, msg) {
@@ -208,6 +214,19 @@
         state.apolloKey   = apolloKey;
         state.srKey       = srKey;
         state.webhookUuid = webhookUuid;
+
+        // Populate account selector; auto-select if only one account
+        const accounts = data.data?.data || [];
+        const sel = document.getElementById('accountSelect');
+        sel.innerHTML = accounts.map(a =>
+          `<option value="${a.uuid || a.linkedinAccountUuid}">${a.nameOnLinkedinAccount || a.profileUrl}</option>`
+        ).join('');
+        if (accounts.length === 1) {
+          state.linkedinAccountUuid = sel.value;
+          document.getElementById('accountRow').classList.add('hidden');
+        } else {
+          document.getElementById('accountRow').classList.remove('hidden');
+        }
 
         const btn = document.getElementById('connectBtn');
         btn.className = btn.className.replace('bg-indigo-600 hover:bg-indigo-700', 'bg-green-600 hover:bg-green-600 cursor-default');
@@ -346,6 +365,7 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 srKey: state.srKey,
+                linkedinAccountUuid: state.linkedinAccountUuid,
                 linkedinProfileUrl: contact.linkedin_url,
                 message,
               }),
