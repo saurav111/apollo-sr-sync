@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Apollo → SalesRobot Sync</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .step-inactive { opacity: 0.4; pointer-events: none; }
+    .badge-connect  { background: #dbeafe; color: #1d4ed8; }
+    .badge-message  { background: #dcfce7; color: #15803d; }
+    .badge-other    { background: #fef9c3; color: #a16207; }
+    .fade-in { animation: fadeIn .25s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3">
+    <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+      <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+    </div>
+    <div>
+      <h1 class="font-semibold text-gray-900 leading-none">Apollo → SalesRobot</h1>
+      <p class="text-xs text-gray-500 mt-0.5">Sync LinkedIn tasks directly into your campaigns</p>
+    </div>
+  </header>
+
+  <main class="max-w-2xl mx-auto px-4 py-10 space-y-6">
+
+    <!-- Step 1: API Keys -->
+    <section id="step1" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+      <div class="flex items-center gap-2 mb-5">
+        <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">1</span>
+        <h2 class="font-semibold text-gray-900">Connect your accounts</h2>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Apollo API Key</label>
+          <input id="apolloKey" type="text" autocomplete="off" spellcheck="false"
+            placeholder="Paste your Apollo API key"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono" />
+          <p class="text-xs text-gray-400 mt-1">Found in Apollo → Settings → Integrations → API</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">SalesRobot API Key</label>
+          <input id="srKey" type="text" autocomplete="off" spellcheck="false"
+            placeholder="Paste your SalesRobot API key"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono" />
+          <p class="text-xs text-gray-400 mt-1">Found in SalesRobot → Settings → Integrations</p>
+        </div>
+        <button id="connectBtn" onclick="connectAccounts()"
+          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
+          <span id="connectBtnText">Connect & Continue</span>
+          <span id="connectSpinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+        </button>
+        <div id="step1Success" class="hidden flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 fade-in">
+          <svg class="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+          </svg>
+          <span id="step1SuccessText"></span>
+        </div>
+        <p id="step1Error" class="text-sm text-red-500 hidden"></p>
+      </div>
+    </section>
+
+    <!-- Step 2: Select Account + Campaign -->
+    <section id="step2" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 step-inactive">
+      <div class="flex items-center gap-2 mb-5">
+        <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
+        <h2 class="font-semibold text-gray-900">Choose destination campaign</h2>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Account</label>
+          <select id="accountSelect" onchange="loadCampaigns()"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— select account —</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Campaign</label>
+          <select id="campaignSelect"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <option value="">— select campaign —</option>
+          </select>
+        </div>
+        <button onclick="loadTasks()"
+          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
+          <span id="loadTasksBtnText">Fetch Apollo Tasks</span>
+          <span id="loadTasksSpinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+        </button>
+        <div id="step2Success" class="hidden flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 fade-in">
+          <svg class="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+          </svg>
+          <span id="step2SuccessText"></span>
+        </div>
+        <p id="step2Error" class="text-sm text-red-500 hidden"></p>
+      </div>
+    </section>
+
+    <!-- Step 3: Preview & Sync -->
+    <section id="step3" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 step-inactive">
+      <div class="flex items-center justify-between mb-5">
+        <div class="flex items-center gap-2">
+          <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">3</span>
+          <h2 class="font-semibold text-gray-900">Review & sync</h2>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="selectAll(true)" class="text-xs text-indigo-600 hover:underline">Select all</button>
+          <span class="text-gray-300">|</span>
+          <button onclick="selectAll(false)" class="text-xs text-gray-400 hover:underline">Deselect all</button>
+        </div>
+      </div>
+
+      <div id="taskCount" class="text-sm text-gray-500 mb-3"></div>
+      <div id="taskList" class="space-y-2 max-h-96 overflow-y-auto pr-1"></div>
+
+      <div id="noTasks" class="hidden text-center py-10 text-gray-400">
+        <svg class="w-10 h-10 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+        <p class="text-sm">No open LinkedIn tasks found in Apollo</p>
+      </div>
+
+      <div class="mt-5 pt-4 border-t border-gray-100 flex items-center gap-3">
+        <button onclick="syncSelected()"
+          class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
+          <span id="syncBtnText">Sync Selected to SalesRobot</span>
+          <span id="syncSpinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+        </button>
+        <button onclick="loadTasks()" title="Refresh"
+          class="p-2.5 border border-gray-200 hover:border-gray-300 rounded-lg text-gray-400 hover:text-gray-600 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
+      </div>
+      <p id="step3Error" class="text-sm text-red-500 hidden mt-2"></p>
+    </section>
+
+    <!-- Step 4: Results -->
+    <section id="step4" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 hidden fade-in">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="w-6 h-6 rounded-full bg-green-500 text-white text-xs flex items-center justify-center">✓</span>
+        <h2 class="font-semibold text-gray-900">Sync complete</h2>
+      </div>
+      <div id="syncResults" class="space-y-2 text-sm"></div>
+      <button onclick="resetStep3()"
+        class="mt-5 w-full border border-gray-200 hover:border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm transition-colors">
+        ← Back to task list
+      </button>
+    </section>
+
+  </main>
+
+  <script>
+    // ── State ────────────────────────────────────────────────────────────────
+    let state = { apolloKey: '', srKey: '', linkedinAccountUuid: '', campaignUuid: '', tasks: [] };
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function showError(id, msg) {
+      const el = document.getElementById(id);
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+    function clearError(id) { document.getElementById(id).classList.add('hidden'); }
+
+    function setLoading(btnTextId, spinnerId, loading, label) {
+      document.getElementById(spinnerId).classList.toggle('hidden', !loading);
+      if (label) document.getElementById(btnTextId).textContent = label;
+    }
+
+    function enableStep(id) {
+      document.getElementById(id).classList.remove('step-inactive');
+      document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function taskTypeBadge(type) {
+      if (!type) return '';
+      const t = type.toLowerCase();
+      if (t.includes('connect')) return `<span class="badge-connect text-xs font-medium px-2 py-0.5 rounded-full">Connect</span>`;
+      if (t.includes('message')) return `<span class="badge-message text-xs font-medium px-2 py-0.5 rounded-full">Message</span>`;
+      return `<span class="badge-other text-xs font-medium px-2 py-0.5 rounded-full">Task</span>`;
+    }
+
+    // ── Step 1: Connect ───────────────────────────────────────────────────────
+    async function connectAccounts() {
+      clearError('step1Error');
+      const apolloKey = document.getElementById('apolloKey').value.trim();
+      const srKey     = document.getElementById('srKey').value.trim();
+      if (!apolloKey || !srKey) return showError('step1Error', 'Both API keys are required.');
+
+      setLoading('connectBtnText', 'connectSpinner', true, 'Connecting…');
+
+      try {
+        const res = await fetch('/api/salesrobot/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ srKey }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || 'SalesRobot auth failed');
+
+        const accounts = data.data?.data || [];
+        if (!accounts.length) throw new Error('No LinkedIn accounts found in SalesRobot');
+
+        state.apolloKey = apolloKey;
+        state.srKey     = srKey;
+
+        const sel = document.getElementById('accountSelect');
+        sel.innerHTML = '<option value="">— select account —</option>';
+        accounts.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.uuid || a.linkedinAccountUuid;
+          opt.textContent = a.nameOnLinkedinAccount || a.profileUrl || opt.value;
+          sel.appendChild(opt);
+        });
+
+        // Success state
+        const btn = document.getElementById('connectBtn');
+        btn.className = btn.className.replace('bg-indigo-600 hover:bg-indigo-700', 'bg-green-600 hover:bg-green-600 cursor-default');
+        document.getElementById('connectBtnText').textContent = '✓ Connected';
+        btn.onclick = null;
+
+        document.getElementById('step1SuccessText').textContent =
+          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''} found in SalesRobot.`;
+        document.getElementById('step1Success').classList.remove('hidden');
+
+        enableStep('step2');
+      } catch (e) {
+        showError('step1Error', e.message);
+      } finally {
+        setLoading('connectBtnText', 'connectSpinner', false, 'Connect & Continue');
+      }
+    }
+
+    // ── Step 2a: Load campaigns when account selected ─────────────────────────
+    async function loadCampaigns() {
+      const uuid = document.getElementById('accountSelect').value;
+      if (!uuid) return;
+      state.linkedinAccountUuid = uuid;
+
+      const sel = document.getElementById('campaignSelect');
+      sel.innerHTML = '<option value="">Loading…</option>';
+
+      try {
+        const res = await fetch('/api/salesrobot/campaigns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ srKey: state.srKey, linkedinAccountUuid: uuid }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Failed to fetch campaigns');
+
+        const allCampaigns = data.data?.data || [];
+        const activeCampaigns = allCampaigns.filter(c =>
+          !['CREATED', 'DELETED', 'COMPLETED'].includes(c.campaignStatus)
+        );
+
+        sel.innerHTML = '<option value="">— select campaign —</option>';
+        activeCampaigns.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.uuid;
+          const statusIcons = { STARTED: '▶', PAUSED: '⏸', RUNNING: '▶', ACTIVE: '▶' };
+          const icon = statusIcons[c.campaignStatus] || '•';
+          opt.textContent = `${icon} ${c.name} (${c.campaignStatus})`;
+          sel.appendChild(opt);
+        });
+
+        if (!allCampaigns.length) {
+          sel.innerHTML = '<option value="">No campaigns found</option>';
+        } else if (!activeCampaigns.length) {
+          sel.innerHTML = `<option value="">No active campaigns found (${allCampaigns.length} campaigns exist but none are started/paused)</option>`;
+        }
+      } catch (e) {
+        sel.innerHTML = '<option value="">Error loading campaigns</option>';
+        showError('step2Error', e.message);
+      }
+    }
+
+    // ── Step 2b: Fetch Apollo tasks ───────────────────────────────────────────
+    async function loadTasks() {
+      clearError('step2Error');
+      clearError('step3Error');
+      const campaignUuid = document.getElementById('campaignSelect').value;
+      if (!campaignUuid) return showError('step2Error', 'Please select a campaign first.');
+
+      state.campaignUuid = campaignUuid;
+      setLoading('loadTasksBtnText', 'loadTasksSpinner', true, 'Fetching…');
+
+      try {
+        const res = await fetch('/api/apollo/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apolloKey: state.apolloKey }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.message || 'Apollo fetch failed — check your API key');
+
+        const tasks = data.tasks || [];
+        state.tasks = tasks;
+        renderTasks(tasks);
+
+        const withLinkedIn = tasks.filter(t => t.contact?.linkedin_url).length;
+        const el = document.getElementById('step2Success');
+        document.getElementById('step2SuccessText').textContent = tasks.length === 0
+          ? 'No open LinkedIn tasks found in Apollo.'
+          : `${tasks.length} LinkedIn task${tasks.length !== 1 ? 's' : ''} fetched — ${withLinkedIn} ready to sync${tasks.length - withLinkedIn > 0 ? `, ${tasks.length - withLinkedIn} skipped (no LinkedIn URL)` : ''}.`;
+        el.classList.remove('hidden');
+        el.className = el.className.replace('hidden', '') + (tasks.length === 0 ? ' !bg-amber-50 !border-amber-200 !text-amber-700' : '');
+
+        enableStep('step3');
+      } catch (e) {
+        showError('step2Error', e.message);
+      } finally {
+        setLoading('loadTasksBtnText', 'loadTasksSpinner', false, 'Fetch Apollo Tasks');
+      }
+    }
+
+    // ── Render tasks ──────────────────────────────────────────────────────────
+    function renderTasks(tasks) {
+      const list = document.getElementById('taskList');
+      const noTasks = document.getElementById('noTasks');
+      const count = document.getElementById('taskCount');
+
+      list.innerHTML = '';
+
+      const withLinkedIn = tasks.filter(t => t.contact?.linkedin_url);
+      const withoutLinkedIn = tasks.filter(t => !t.contact?.linkedin_url);
+
+      if (!tasks.length) {
+        noTasks.classList.remove('hidden');
+        count.textContent = '';
+        return;
+      }
+
+      noTasks.classList.add('hidden');
+      count.innerHTML = `<span class="font-medium text-gray-700">${withLinkedIn.length}</span> tasks with LinkedIn URL &nbsp;·&nbsp; <span class="text-amber-600">${withoutLinkedIn.length} skipped</span> (no LinkedIn URL)`;
+
+      withLinkedIn.forEach((task, i) => {
+        const contact = task.contact || {};
+        const name = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Unknown';
+        const company = contact.organization_name || '';
+        const title = contact.title || '';
+        const li = document.getElementById('taskList').cloneNode ? document.createElement('div') : null;
+
+        list.insertAdjacentHTML('beforeend', `
+          <div class="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors fade-in">
+            <input type="checkbox" checked data-index="${i}"
+              class="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-medium text-sm text-gray-900">${escHtml(name)}</span>
+                ${taskTypeBadge(task.task_type)}
+              </div>
+              ${title || company ? `<p class="text-xs text-gray-500 mt-0.5">${escHtml([title, company].filter(Boolean).join(' · '))}</p>` : ''}
+              <a href="${escHtml(contact.linkedin_url)}" target="_blank"
+                class="text-xs text-indigo-500 hover:underline truncate block mt-0.5">
+                ${escHtml(contact.linkedin_url)}
+              </a>
+            </div>
+          </div>
+        `);
+      });
+
+      if (withoutLinkedIn.length) {
+        list.insertAdjacentHTML('beforeend', `
+          <div class="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-2">
+            ⚠ ${withoutLinkedIn.length} task${withoutLinkedIn.length > 1 ? 's' : ''} skipped — no LinkedIn URL in Apollo contact record.
+          </div>
+        `);
+      }
+    }
+
+    function escHtml(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function selectAll(checked) {
+      document.querySelectorAll('#taskList input[type=checkbox]').forEach(cb => cb.checked = checked);
+    }
+
+    // ── Step 3: Sync ──────────────────────────────────────────────────────────
+    async function syncSelected() {
+      clearError('step3Error');
+      const checked = [...document.querySelectorAll('#taskList input[type=checkbox]:checked')];
+      if (!checked.length) return showError('step3Error', 'Select at least one task to sync.');
+
+      const withLinkedIn = state.tasks.filter(t => t.contact?.linkedin_url);
+      const selected = checked.map(cb => withLinkedIn[parseInt(cb.dataset.index)]).filter(Boolean);
+
+      setLoading('syncBtnText', 'syncSpinner', true, `Syncing ${selected.length}…`);
+
+      const results = [];
+      for (const task of selected) {
+        const contact = task.contact || {};
+        const prospect = {
+          profileUrl:  contact.linkedin_url,
+          firstName:   contact.first_name  || '',
+          lastName:    contact.last_name   || '',
+          fullName:    contact.name        || [contact.first_name, contact.last_name].filter(Boolean).join(' '),
+          emailId:     contact.email       || '',
+          jobTitle:    contact.title       || '',
+          companyName: contact.organization_name || '',
+        };
+
+        try {
+          const res = await fetch('/api/salesrobot/add-prospect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              srKey: state.srKey,
+              linkedinAccountUuid: state.linkedinAccountUuid,
+              campaignUuid: state.campaignUuid,
+              prospect,
+            }),
+          });
+          const data = await res.json();
+          results.push({ name: prospect.fullName || prospect.profileUrl, success: data.success, message: data.message });
+        } catch (e) {
+          results.push({ name: prospect.fullName || prospect.profileUrl, success: false, message: e.message });
+        }
+      }
+
+      setLoading('syncBtnText', 'syncSpinner', false, 'Sync Selected to SalesRobot');
+      showResults(results);
+    }
+
+    function showResults(results) {
+      const step4 = document.getElementById('step4');
+      const container = document.getElementById('syncResults');
+      step4.classList.remove('hidden');
+      step4.scrollIntoView({ behavior: 'smooth' });
+
+      const ok  = results.filter(r => r.success).length;
+      const err = results.filter(r => !r.success).length;
+
+      container.innerHTML = `
+        <div class="flex gap-4 mb-4">
+          <div class="flex-1 bg-green-50 border border-green-100 rounded-xl p-3 text-center">
+            <p class="text-2xl font-bold text-green-600">${ok}</p>
+            <p class="text-xs text-green-700">Added successfully</p>
+          </div>
+          ${err ? `<div class="flex-1 bg-red-50 border border-red-100 rounded-xl p-3 text-center">
+            <p class="text-2xl font-bold text-red-500">${err}</p>
+            <p class="text-xs text-red-600">Failed</p>
+          </div>` : ''}
+        </div>
+        ${results.map(r => `
+          <div class="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0">
+            <span class="text-base">${r.success ? '✅' : '❌'}</span>
+            <span class="text-sm flex-1 truncate">${escHtml(r.name)}</span>
+            ${!r.success ? `<span class="text-xs text-red-400 truncate max-w-[160px]">${escHtml(r.message)}</span>` : ''}
+          </div>
+        `).join('')}
+      `;
+    }
+
+    function resetStep3() {
+      document.getElementById('step4').classList.add('hidden');
+      document.getElementById('step3').scrollIntoView({ behavior: 'smooth' });
+    }
+  </script>
+</body>
+</html>
