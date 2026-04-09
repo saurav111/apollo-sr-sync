@@ -43,6 +43,12 @@
           <span id="connectLiSpinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
         </button>
       </div>
+      <div id="connectLiStatus" class="hidden flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 mt-3 fade-in">
+        <svg class="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span id="connectLiStatusText"></span>
+      </div>
       <p id="connectLiError" class="text-sm text-red-500 hidden mt-3"></p>
     </section>
 
@@ -260,12 +266,59 @@
         });
         const data = await res.json();
         if (!res.ok || !data.url) throw new Error(data.message || data.error || 'Failed to generate connect URL');
-        window.open(data.url, '_blank');
+
+        const popup = window.open(data.url, '_blank');
+        setLoading('connectLiBtnText', 'connectLiSpinner', true, 'Waiting for LinkedIn…');
+        pollForLinkedInAccount(popup);
       } catch (e) {
         showError('connectLiError', e.message);
-      } finally {
         setLoading('connectLiBtnText', 'connectLiSpinner', false, 'Connect LinkedIn');
       }
+    }
+
+    async function pollForLinkedInAccount(popup) {
+      const maxAttempts = 100; // ~5 min at 3s intervals
+      let attempts = 0;
+
+      const interval = setInterval(async () => {
+        attempts++;
+
+        // Stop if popup was closed without success or timeout reached
+        if ((popup && popup.closed) || attempts >= maxAttempts) {
+          clearInterval(interval);
+          setLoading('connectLiBtnText', 'connectLiSpinner', false, 'Connect LinkedIn');
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/unipile/accounts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          const accounts = (data.items || data.accounts || []).filter(a =>
+            (a.type || a.provider || '').toUpperCase() === 'LINKEDIN'
+          );
+
+          if (accounts.length > 0) {
+            clearInterval(interval);
+            if (popup && !popup.closed) popup.close();
+
+            // Show success state
+            const name = accounts[0].name || accounts[0].username || 'LinkedIn account';
+            const btn = document.getElementById('connectLiBtnText').closest('button');
+            btn.className = btn.className.replace('bg-indigo-600 hover:bg-indigo-700', 'bg-green-600 hover:bg-green-600 cursor-default');
+            document.getElementById('connectLiBtnText').textContent = '✓ Connected';
+            document.getElementById('connectLiSpinner').classList.add('hidden');
+            btn.onclick = null;
+
+            document.getElementById('connectLiStatusText').textContent = `${name} connected successfully.`;
+            document.getElementById('connectLiStatus').classList.remove('hidden');
+          }
+        } catch (_) { /* ignore transient errors during polling */ }
+      }, 3000);
     }
 
     // ── Step 2: Fetch Apollo tasks ────────────────────────────────────────────
