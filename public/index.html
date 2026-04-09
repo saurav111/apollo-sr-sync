@@ -30,6 +30,22 @@
 
   <main class="max-w-2xl mx-auto px-4 py-10 space-y-6">
 
+    <!-- Connect LinkedIn -->
+    <section class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="font-semibold text-gray-900">LinkedIn Account</h2>
+          <p class="text-sm text-gray-500 mt-0.5">Connect your LinkedIn account to send messages and connection requests</p>
+        </div>
+        <button onclick="connectLinkedIn()"
+          class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+          <span id="connectLiBtnText">Connect LinkedIn</span>
+          <span id="connectLiSpinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+        </button>
+      </div>
+      <p id="connectLiError" class="text-sm text-red-500 hidden mt-3"></p>
+    </section>
+
     <!-- Step 1: API Keys -->
     <section id="step1" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
       <div class="flex items-center gap-2 mb-5">
@@ -54,18 +70,6 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
           </svg>
           <span id="step1SuccessText"></span>
-        </div>
-        <!-- Connect LinkedIn account -->
-        <div id="connectLinkedInRow" class="hidden">
-          <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 flex items-center justify-between gap-3">
-            <span>No LinkedIn account connected in Unipile.</span>
-            <button onclick="connectLinkedIn()"
-              class="shrink-0 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
-              <span id="connectLiBtnText">Connect LinkedIn</span>
-              <span id="connectLiSpinner" class="hidden w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-            </button>
-          </div>
-          <p class="text-xs text-gray-400 mt-1.5">After connecting, click "Connect & Continue" again to refresh.</p>
         </div>
         <!-- Account selector (only shown if multiple LinkedIn accounts) -->
         <div id="accountRow" class="hidden">
@@ -211,15 +215,9 @@
         state.apolloKey = apolloKey;
 
         if (!accounts.length) {
-          // No LinkedIn accounts — show connect button
-          document.getElementById('connectLinkedInRow').classList.remove('hidden');
           document.getElementById('accountRow').classList.add('hidden');
-          document.getElementById('step1SuccessText').textContent = 'Unipile connected — no LinkedIn account found yet.';
-          document.getElementById('step1Success').classList.remove('hidden');
-          return; // Don't advance to step 2 yet
+          throw new Error('No LinkedIn account connected in Unipile — use the "Connect LinkedIn" button above first.');
         }
-
-        document.getElementById('connectLinkedInRow').classList.add('hidden');
 
         if (accounts.length === 1) {
           state.accountId = accounts[0].id || accounts[0].account_id;
@@ -252,6 +250,7 @@
 
     // ── Connect LinkedIn via hosted auth ──────────────────────────────────────
     async function connectLinkedIn() {
+      clearError('connectLiError');
       setLoading('connectLiBtnText', 'connectLiSpinner', true, 'Generating link…');
       try {
         const res = await fetch('/api/unipile/connect-url', {
@@ -263,7 +262,7 @@
         if (!res.ok || !data.url) throw new Error(data.message || data.error || 'Failed to generate connect URL');
         window.open(data.url, '_blank');
       } catch (e) {
-        showError('step1Error', e.message);
+        showError('connectLiError', e.message);
       } finally {
         setLoading('connectLiBtnText', 'connectLiSpinner', false, 'Connect LinkedIn');
       }
