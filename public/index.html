@@ -238,26 +238,6 @@
         const account = accounts[0];
         state.linkedinAccountUuid = account.uuid || account.linkedinAccountUuid;
 
-        // Fetch campaigns for that account
-        const campRes = await fetch('/api/salesrobot/campaigns', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ srKey, linkedinAccountUuid: state.linkedinAccountUuid }),
-        });
-        const campData = await campRes.json();
-        if (!campRes.ok || !campData.success) throw new Error(campData.message || campData.error || 'Failed to fetch campaigns');
-
-        const campaigns = campData.data?.data || [];
-        const options = campaigns.map(c => {
-          const icons = { STARTED: '▶', PAUSED: '⏸' };
-          const icon = icons[c.campaignStatus] || '•';
-          return `<option value="${escHtml(c.name)}">${icon} ${escHtml(c.name)} (${c.campaignStatus})</option>`;
-        }).join('');
-        const placeholder = '<option value="">— select campaign —</option>';
-
-        document.getElementById('connectCampaignSelect').innerHTML = placeholder + options;
-        document.getElementById('messageCampaignSelect').innerHTML = placeholder + options;
-
         // Success state
         const btn = document.getElementById('connectBtn');
         btn.className = btn.className.replace('bg-indigo-600 hover:bg-indigo-700', 'bg-green-600 hover:bg-green-600 cursor-default');
@@ -265,15 +245,49 @@
         btn.onclick = null;
 
         document.getElementById('step1SuccessText').innerHTML =
-          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''}, ${campaigns.length} campaigns loaded.`
+          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''} found.`
           + `<br><span class="text-xs text-green-600 font-mono mt-0.5 block">Webhook: …/webhooks/${escHtml(webhookUuid)}/campaign/addProspect</span>`;
         document.getElementById('step1Success').classList.remove('hidden');
 
         enableStep('step2');
+        loadCampaigns();
       } catch (e) {
         showError('step1Error', e.message);
       } finally {
         setLoading('connectBtnText', 'connectSpinner', false, 'Connect & Continue');
+      }
+    }
+
+    // ── Load campaigns into both dropdowns ───────────────────────────────────
+    async function loadCampaigns() {
+      const placeholder = '<option value="">Loading campaigns…</option>';
+      document.getElementById('connectCampaignSelect').innerHTML = placeholder;
+      document.getElementById('messageCampaignSelect').innerHTML = placeholder;
+
+      try {
+        const res = await fetch('/api/salesrobot/campaigns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ srKey: state.srKey, linkedinAccountUuid: state.linkedinAccountUuid }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || 'Failed to fetch campaigns');
+
+        const campaigns = data.data?.data || [];
+        const empty = '<option value="">— select campaign —</option>';
+        const options = campaigns.map(c => {
+          const icons = { STARTED: '▶', PAUSED: '⏸' };
+          const icon = icons[c.campaignStatus] || '•';
+          return `<option value="${escHtml(c.name)}">${icon} ${escHtml(c.name)} (${c.campaignStatus})</option>`;
+        }).join('');
+
+        document.getElementById('connectCampaignSelect').innerHTML = empty + options;
+        document.getElementById('messageCampaignSelect').innerHTML = empty + options;
+      } catch (e) {
+        const errOpt = `<option value="">Error loading campaigns — ${escHtml(e.message)}</option>`;
+        document.getElementById('connectCampaignSelect').innerHTML = errOpt;
+        document.getElementById('messageCampaignSelect').innerHTML = errOpt;
+        showError('step2Error', e.message);
       }
     }
 
