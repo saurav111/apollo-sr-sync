@@ -74,21 +74,13 @@
       </div>
     </section>
 
-    <!-- Step 2: Select LinkedIn Account + Fetch Tasks -->
+    <!-- Step 2: Fetch Tasks -->
     <section id="step2" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 step-inactive">
       <div class="flex items-center gap-2 mb-5">
         <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
-        <h2 class="font-semibold text-gray-900">Select LinkedIn account & fetch tasks</h2>
+        <h2 class="font-semibold text-gray-900">Fetch open LinkedIn tasks</h2>
       </div>
       <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Account</label>
-          <select id="accountSelect"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="">— select account —</option>
-          </select>
-          <p class="text-xs text-gray-400 mt-1">Tasks will be executed from this LinkedIn account</p>
-        </div>
         <button onclick="loadTasks()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
           <span id="loadTasksBtnText">Fetch Apollo Tasks</span>
@@ -161,7 +153,7 @@
 
   <script>
     // ── State ────────────────────────────────────────────────────────────────
-    let state = { apolloKey: '', srKey: '', webhookUuid: '', linkedinAccountUuid: '', tasks: [] };
+    let state = { apolloKey: '', srKey: '', webhookUuid: '', tasks: [] };
 
     // ── Helpers ──────────────────────────────────────────────────────────────
     function showError(id, msg) {
@@ -204,37 +196,25 @@
       setLoading('connectBtnText', 'connectSpinner', true, 'Connecting…');
 
       try {
+        // Validate SR key by fetching accounts
         const res = await fetch('/api/salesrobot/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ srKey }),
         });
         const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.message || data.error || 'SalesRobot auth failed');
-
-        const accounts = data.data?.data || [];
-        if (!accounts.length) throw new Error('No LinkedIn accounts found in SalesRobot');
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || 'SalesRobot auth failed — check your API key');
 
         state.apolloKey   = apolloKey;
         state.srKey       = srKey;
         state.webhookUuid = webhookUuid;
-
-        const sel = document.getElementById('accountSelect');
-        sel.innerHTML = '<option value="">— select account —</option>';
-        accounts.forEach(a => {
-          const opt = document.createElement('option');
-          opt.value = a.uuid || a.linkedinAccountUuid;
-          opt.textContent = a.nameOnLinkedinAccount || a.profileUrl || opt.value;
-          sel.appendChild(opt);
-        });
 
         const btn = document.getElementById('connectBtn');
         btn.className = btn.className.replace('bg-indigo-600 hover:bg-indigo-700', 'bg-green-600 hover:bg-green-600 cursor-default');
         document.getElementById('connectBtnText').textContent = '✓ Connected';
         btn.onclick = null;
 
-        document.getElementById('step1SuccessText').textContent =
-          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''} found in SalesRobot.`;
+        document.getElementById('step1SuccessText').textContent = 'Connected — SalesRobot and Apollo keys verified.';
         document.getElementById('step1Success').classList.remove('hidden');
 
         enableStep('step2');
@@ -249,10 +229,6 @@
     async function loadTasks() {
       clearError('step2Error');
       clearError('step3Error');
-      const linkedinAccountUuid = document.getElementById('accountSelect').value;
-      if (!linkedinAccountUuid) return showError('step2Error', 'Please select a LinkedIn account first.');
-
-      state.linkedinAccountUuid = linkedinAccountUuid;
       setLoading('loadTasksBtnText', 'loadTasksSpinner', true, 'Fetching…');
 
       try {
@@ -370,7 +346,6 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 srKey: state.srKey,
-                linkedinAccountUuid: state.linkedinAccountUuid,
                 linkedinProfileUrl: contact.linkedin_url,
                 message,
               }),
