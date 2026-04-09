@@ -12,23 +12,49 @@
     .badge-other   { background: #fef9c3; color: #a16207; }
     .fade-in { animation: fadeIn .25s ease; }
     @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+    #historyPanel { transition: transform .3s ease, opacity .3s ease; }
+    #historyPanel.hidden { display: none; }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen font-sans text-gray-800">
 
   <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3">
-    <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+    <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0">
       <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
       </svg>
     </div>
-    <div>
+    <div class="flex-1">
       <h1 class="font-semibold text-gray-900 leading-none">Apollo → SalesRobot</h1>
       <p class="text-xs text-gray-500 mt-0.5">Sync LinkedIn tasks from Apollo into SalesRobot campaigns</p>
     </div>
+    <button onclick="toggleHistory()"
+      class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 rounded-lg px-3 py-1.5 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      History
+    </button>
   </header>
 
   <main class="max-w-2xl mx-auto px-4 py-10 space-y-6">
+
+    <!-- Profile selector bar -->
+    <div id="profileBar" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+      <div class="flex items-center gap-3">
+        <label class="text-sm font-medium text-gray-700 shrink-0">Profile</label>
+        <select id="profileSelect" onchange="onProfileSelect()"
+          class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <option value="">— new profile —</option>
+        </select>
+        <button id="deleteProfileBtn" onclick="deleteProfile()" title="Delete profile"
+          class="hidden p-2 text-red-400 hover:text-red-600 border border-red-100 hover:border-red-300 rounded-lg transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
 
     <!-- Step 1: API Keys -->
     <section id="step1" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
@@ -58,6 +84,21 @@
             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
           <p class="text-xs text-gray-400 mt-1">SalesRobot → Settings → Integrations → Webhooks (Inbound)</p>
         </div>
+
+        <!-- Profile name (shown when saving a new profile) -->
+        <div id="profileNameRow" class="hidden">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Save as profile (optional)</label>
+          <div class="flex gap-2">
+            <input id="profileNameInput" type="text" placeholder="e.g. Maria, Saurav…"
+              class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <button onclick="saveProfile()"
+              class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
+              Save
+            </button>
+          </div>
+          <p id="saveProfileMsg" class="text-xs mt-1 hidden"></p>
+        </div>
+
         <button id="connectBtn" onclick="connectAccounts()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
           <span id="connectBtnText">Connect & Continue</span>
@@ -77,7 +118,7 @@
     <section id="step2" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 step-inactive">
       <div class="flex items-center gap-2 mb-5">
         <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
-        <h2 class="font-semibold text-gray-900">Select account & campaigns</h2>
+        <h2 class="font-semibold text-gray-900">Select account &amp; campaigns</h2>
       </div>
       <div class="space-y-4">
         <div>
@@ -127,7 +168,7 @@
       <div class="flex items-center justify-between mb-5">
         <div class="flex items-center gap-2">
           <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">3</span>
-          <h2 class="font-semibold text-gray-900">Review & sync</h2>
+          <h2 class="font-semibold text-gray-900">Review &amp; sync</h2>
         </div>
         <div class="flex items-center gap-2">
           <button onclick="selectAll(true)" class="text-xs text-indigo-600 hover:underline">Select all</button>
@@ -169,6 +210,7 @@
         <h2 class="font-semibold text-gray-900">Sync complete</h2>
       </div>
       <div id="syncResults" class="space-y-2 text-sm"></div>
+      <div id="apolloCompleteMsg" class="hidden mt-3 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2"></div>
       <button onclick="resetStep3()"
         class="mt-5 w-full border border-gray-200 hover:border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg text-sm transition-colors">
         ← Back to task list
@@ -177,14 +219,41 @@
 
   </main>
 
+  <!-- History Panel -->
+  <div id="historyPanel" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div class="absolute inset-0 bg-black/30" onclick="toggleHistory()"></div>
+    <div class="relative bg-white w-full max-w-lg h-full shadow-2xl flex flex-col overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+        <h2 class="font-semibold text-gray-900">Sync History</h2>
+        <div class="flex items-center gap-2">
+          <button onclick="loadHistory()" title="Refresh"
+            class="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+          </button>
+          <button onclick="toggleHistory()" class="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="historyContent" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+    </div>
+  </div>
+
   <script>
     let state = {
       apolloKey: '', srKey: '', webhookUuid: '',
       linkedinAccountUuid: '',
+      linkedinAccountName: '',
       connectCampaignName: '', messageCampaignName: '',
+      currentProfileId: null,
       tasks: [],
     };
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
     function showError(id, msg) {
       const el = document.getElementById(id);
       el.textContent = msg;
@@ -214,7 +283,102 @@
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // ── Step 1: Connect & load campaigns ─────────────────────────────────────
+    function fmtDate(iso) {
+      try {
+        return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      } catch { return iso; }
+    }
+
+    // ── Profiles ──────────────────────────────────────────────────────────────
+    async function loadProfiles() {
+      try {
+        const res = await fetch('/api/profiles');
+        const data = await res.json();
+        const sel = document.getElementById('profileSelect');
+        sel.innerHTML = '<option value="">— new profile —</option>' +
+          (data.profiles || []).map(p =>
+            `<option value="${escHtml(p.id)}">${escHtml(p.name)} (apollo:${escHtml(p.apolloKeyHint)}, sr:${escHtml(p.srKeyHint)})</option>`
+          ).join('');
+        // Restore selected profile if we have one
+        if (state.currentProfileId) sel.value = state.currentProfileId;
+      } catch { /* silently ignore */ }
+    }
+
+    async function onProfileSelect() {
+      const id = document.getElementById('profileSelect').value;
+      document.getElementById('deleteProfileBtn').classList.toggle('hidden', !id);
+      document.getElementById('profileNameRow').classList.toggle('hidden', !!id);
+
+      if (!id) {
+        // Clear fields for new profile entry
+        document.getElementById('apolloKey').value = '';
+        document.getElementById('srKey').value = '';
+        document.getElementById('srWebhookUuid').value = '';
+        state.currentProfileId = null;
+        return;
+      }
+
+      // Load full keys for selected profile
+      try {
+        const res = await fetch(`/api/profiles/${id}/keys`);
+        const data = await res.json();
+        document.getElementById('apolloKey').value = data.apolloKey || '';
+        document.getElementById('srKey').value = data.srKey || '';
+        document.getElementById('srWebhookUuid').value = data.webhookUuid || '';
+        state.currentProfileId = id;
+      } catch { showError('step1Error', 'Failed to load profile keys'); }
+    }
+
+    async function saveProfile() {
+      const name = document.getElementById('profileNameInput').value.trim();
+      if (!name) return;
+      const apolloKey   = document.getElementById('apolloKey').value.trim();
+      const srKey       = document.getElementById('srKey').value.trim();
+      const webhookUuid = document.getElementById('srWebhookUuid').value.trim();
+      if (!apolloKey || !srKey || !webhookUuid) {
+        document.getElementById('saveProfileMsg').textContent = 'Fill in all fields first.';
+        document.getElementById('saveProfileMsg').className = 'text-xs mt-1 text-red-500';
+        document.getElementById('saveProfileMsg').classList.remove('hidden');
+        return;
+      }
+      try {
+        const res = await fetch('/api/profiles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, apolloKey, srKey, webhookUuid }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        state.currentProfileId = data.id;
+        document.getElementById('profileNameInput').value = '';
+        document.getElementById('saveProfileMsg').textContent = `Profile "${name}" saved!`;
+        document.getElementById('saveProfileMsg').className = 'text-xs mt-1 text-green-600';
+        document.getElementById('saveProfileMsg').classList.remove('hidden');
+        await loadProfiles();
+        document.getElementById('profileSelect').value = data.id;
+        document.getElementById('deleteProfileBtn').classList.remove('hidden');
+        document.getElementById('profileNameRow').classList.add('hidden');
+        setTimeout(() => document.getElementById('saveProfileMsg').classList.add('hidden'), 3000);
+      } catch (e) {
+        document.getElementById('saveProfileMsg').textContent = e.message;
+        document.getElementById('saveProfileMsg').className = 'text-xs mt-1 text-red-500';
+        document.getElementById('saveProfileMsg').classList.remove('hidden');
+      }
+    }
+
+    async function deleteProfile() {
+      const id = document.getElementById('profileSelect').value;
+      if (!id || !confirm('Delete this profile?')) return;
+      try {
+        await fetch(`/api/profiles/${id}`, { method: 'DELETE' });
+        state.currentProfileId = null;
+        document.getElementById('profileSelect').value = '';
+        document.getElementById('deleteProfileBtn').classList.add('hidden');
+        await loadProfiles();
+      } catch { /* silently ignore */ }
+    }
+
+    // ── Step 1: Connect ───────────────────────────────────────────────────────
     async function connectAccounts() {
       clearError('step1Error');
       const apolloKey   = document.getElementById('apolloKey').value.trim();
@@ -225,7 +389,6 @@
       setLoading('connectBtnText', 'connectSpinner', true, 'Connecting…');
 
       try {
-        // Validate SR key + fetch accounts
         const accRes = await fetch('/api/salesrobot/accounts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -245,7 +408,7 @@
         const sel = document.getElementById('accountSelect');
         sel.innerHTML = '<option value="">— select account —</option>' +
           accounts.map(a => {
-            const uuid = a.uuid || a.linkedinAccountUuid;
+            const uuid  = a.uuid || a.linkedinAccountUuid;
             const label = a.nameOnLinkedinAccount || a.profileUrl || uuid;
             return `<option value="${escHtml(uuid)}">${escHtml(label)}</option>`;
           }).join('');
@@ -261,6 +424,11 @@
           + `<br><span class="text-xs text-green-600 font-mono mt-0.5 block">Webhook: …/webhooks/${escHtml(webhookUuid)}/campaign/addProspect</span>`;
         document.getElementById('step1Success').classList.remove('hidden');
 
+        // Show save-profile row if not using a saved profile
+        if (!state.currentProfileId) {
+          document.getElementById('profileNameRow').classList.remove('hidden');
+        }
+
         enableStep('step2');
       } catch (e) {
         showError('step1Error', e.message);
@@ -269,11 +437,15 @@
       }
     }
 
-    // ── Load campaigns into both dropdowns ───────────────────────────────────
+    // ── Load campaigns ────────────────────────────────────────────────────────
     async function loadCampaigns() {
       const linkedinAccountUuid = document.getElementById('accountSelect').value;
       if (!linkedinAccountUuid) return;
       state.linkedinAccountUuid = linkedinAccountUuid;
+
+      // Track account name for history
+      const sel = document.getElementById('accountSelect');
+      state.linkedinAccountName = sel.options[sel.selectedIndex]?.text || '';
 
       const placeholder = '<option value="">Loading campaigns…</option>';
       document.getElementById('connectCampaignSelect').innerHTML = placeholder;
@@ -299,7 +471,7 @@
         document.getElementById('connectCampaignSelect').innerHTML = empty + options;
         document.getElementById('messageCampaignSelect').innerHTML = empty + options;
       } catch (e) {
-        const errOpt = `<option value="">Error loading campaigns — ${escHtml(e.message)}</option>`;
+        const errOpt = `<option value="">Error: ${escHtml(e.message)}</option>`;
         document.getElementById('connectCampaignSelect').innerHTML = errOpt;
         document.getElementById('messageCampaignSelect').innerHTML = errOpt;
         showError('step2Error', e.message);
@@ -425,22 +597,22 @@
 
       const results = [];
       for (const task of selected) {
-        const contact      = task.contact || {};
-        const name         = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
-        const taskType     = task.type || '';
+        const contact       = task.contact || {};
+        const name          = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
+        const taskType      = task.type || '';
         const customMessage = task.standalone_outreach_task_message?.body_text || '';
-        const campaignName = taskType.includes('connect')
+        const campaignName  = taskType.includes('connect')
           ? state.connectCampaignName
           : state.messageCampaignName;
 
         const prospect = {
-          profileUrl:    contact.linkedin_url,
-          firstName:     contact.first_name   || '',
-          lastName:      contact.last_name    || '',
-          fullName:      contact.name         || name,
-          emailId:       contact.email        || '',
-          jobTitle:      contact.title        || '',
-          companyName:   contact.organization_name || '',
+          profileUrl:  contact.linkedin_url,
+          firstName:   contact.first_name   || '',
+          lastName:    contact.last_name    || '',
+          fullName:    contact.name         || name,
+          emailId:     contact.email        || '',
+          jobTitle:    contact.title        || '',
+          companyName: contact.organization_name || '',
           customMessage,
         };
 
@@ -448,20 +620,60 @@
           const res = await fetch('/api/salesrobot/add-prospect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              webhookUuid: state.webhookUuid,
-              campaignName,
-              prospect,
-            }),
+            body: JSON.stringify({ webhookUuid: state.webhookUuid, campaignName, prospect }),
           });
           const data = await res.json();
-          results.push({ name, taskType, success: data.success || res.ok, message: data.message });
+          results.push({ taskId: task.id, name, taskType, success: data.success || res.ok, message: data.message, error: data.error });
         } catch (e) {
-          results.push({ name, taskType, success: false, message: e.message });
+          results.push({ taskId: task.id, name, taskType, success: false, error: e.message });
         }
       }
 
       setLoading('syncBtnText', 'syncSpinner', false, 'Sync Selected to SalesRobot');
+
+      // Mark successful tasks complete in Apollo (soft-fail, run in background)
+      const successfulTasks = results.filter(r => r.success && r.taskId);
+      let completedCount = 0;
+      const apolloMsgEl = document.getElementById('apolloCompleteMsg');
+      apolloMsgEl.classList.remove('hidden');
+      apolloMsgEl.textContent = `Marking ${successfulTasks.length} task${successfulTasks.length !== 1 ? 's' : ''} complete in Apollo…`;
+
+      for (const r of successfulTasks) {
+        try {
+          const res = await fetch(`/api/apollo/tasks/${r.taskId}/complete`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apolloKey: state.apolloKey }),
+          });
+          const data = await res.json();
+          if (data.success) completedCount++;
+        } catch { /* soft-fail */ }
+      }
+
+      if (successfulTasks.length > 0) {
+        apolloMsgEl.textContent = completedCount > 0
+          ? `✓ Marked ${completedCount} of ${successfulTasks.length} task${successfulTasks.length !== 1 ? 's' : ''} complete in Apollo.`
+          : `Could not mark tasks complete in Apollo (endpoint may not be supported).`;
+      } else {
+        apolloMsgEl.classList.add('hidden');
+      }
+
+      // Save history
+      const profileName = document.getElementById('profileSelect').selectedOptions[0]?.text || 'Unknown';
+      try {
+        await fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profileName: state.currentProfileId ? profileName.split(' (')[0] : 'Unknown',
+            linkedinAccountName: state.linkedinAccountName,
+            connectCampaign: state.connectCampaignName,
+            messageCampaign: state.messageCampaignName,
+            results,
+          }),
+        });
+      } catch { /* silently ignore */ }
+
       showResults(results);
     }
 
@@ -489,8 +701,8 @@
           <div class="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0">
             <span class="text-base">${r.success ? '✅' : '❌'}</span>
             <span class="text-sm flex-1 truncate">${escHtml(r.name)}</span>
-            <span class="text-xs text-gray-400">${escHtml(r.taskType?.replace('linkedin_step_', '') || '')}</span>
-            ${!r.success ? `<span class="text-xs text-red-400 truncate max-w-[160px]">${escHtml(r.message)}</span>` : ''}
+            <span class="text-xs text-gray-400">${escHtml((r.taskType || '').replace('linkedin_step_', ''))}</span>
+            ${!r.success ? `<span class="text-xs text-red-400 truncate max-w-[160px]">${escHtml(r.error || r.message || '')}</span>` : ''}
           </div>
         `).join('')}
       `;
@@ -498,8 +710,65 @@
 
     function resetStep3() {
       document.getElementById('step4').classList.add('hidden');
+      document.getElementById('apolloCompleteMsg').classList.add('hidden');
       document.getElementById('step3').scrollIntoView({ behavior: 'smooth' });
     }
+
+    // ── History panel ─────────────────────────────────────────────────────────
+    function toggleHistory() {
+      const panel = document.getElementById('historyPanel');
+      const isHidden = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden');
+      if (isHidden) loadHistory();
+    }
+
+    async function loadHistory() {
+      const container = document.getElementById('historyContent');
+      container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">Loading…</p>';
+      try {
+        const res = await fetch('/api/history');
+        const data = await res.json();
+        const runs = data.runs || [];
+        if (!runs.length) {
+          container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">No sync history yet.</p>';
+          return;
+        }
+        container.innerHTML = runs.map(run => `
+          <div class="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <p class="text-sm font-medium text-gray-900">${escHtml(run.profileName || 'Unknown')}</p>
+                <p class="text-xs text-gray-400">${fmtDate(run.timestamp)}</p>
+              </div>
+              <div class="flex gap-2 shrink-0">
+                <span class="text-xs bg-green-50 text-green-700 border border-green-100 rounded-full px-2 py-0.5">${run.succeeded} ok</span>
+                ${run.failed ? `<span class="text-xs bg-red-50 text-red-600 border border-red-100 rounded-full px-2 py-0.5">${run.failed} failed</span>` : ''}
+              </div>
+            </div>
+            ${run.linkedinAccountName ? `<p class="text-xs text-gray-500">Account: ${escHtml(run.linkedinAccountName)}</p>` : ''}
+            <p class="text-xs text-gray-400">Connect → ${escHtml(run.connectCampaign)} · Msg → ${escHtml(run.messageCampaign)}</p>
+            <details class="text-xs">
+              <summary class="cursor-pointer text-indigo-500 hover:underline">${run.total} prospect${run.total !== 1 ? 's' : ''}</summary>
+              <div class="mt-2 space-y-1 pl-2">
+                ${(run.details || []).map(d => `
+                  <div class="flex items-center gap-1.5">
+                    <span>${d.success ? '✅' : '❌'}</span>
+                    <span class="text-gray-700 truncate">${escHtml(d.name)}</span>
+                    <span class="text-gray-400">${escHtml((d.taskType || '').replace('linkedin_step_', ''))}</span>
+                    ${!d.success && d.error ? `<span class="text-red-400 truncate">${escHtml(d.error)}</span>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            </details>
+          </div>
+        `).join('');
+      } catch (e) {
+        container.innerHTML = `<p class="text-sm text-red-400 text-center py-8">Failed to load history: ${escHtml(e.message)}</p>`;
+      }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    loadProfiles();
   </script>
 </body>
 </html>

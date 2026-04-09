@@ -9,12 +9,25 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const LOG_FILE = path.join(__dirname, 'sync.log');
+const LOG_FILE      = path.join(__dirname, 'sync.log');
+const HISTORY_FILE  = path.join(__dirname, 'history.json');
+const PROFILES_FILE = path.join(__dirname, 'profiles.json');
 
 function log(tag, data) {
   const line = `[${new Date().toISOString()}] [${tag}] ${JSON.stringify(data)}\n`;
   process.stdout.write(line);
   fs.appendFileSync(LOG_FILE, line);
+}
+
+function readJson(file, fallback) {
+  try {
+    if (!fs.existsSync(file)) return fallback;
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch { return fallback; }
+}
+
+function writeJson(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
 app.use((req, res, next) => {
@@ -64,6 +77,38 @@ app.post('/api/apollo/tasks', async (req, res) => {
   }
 });
 
+// ── Apollo: mark a task complete (soft-fail) ─────────────────────────────────
+app.patch('/api/apollo/tasks/:id/complete', async (req, res) => {
+  const { apolloKey } = req.body;
+  const { id } = req.params;
+  if (!apolloKey || !id) return res.status(400).json({ success: false, error: 'Missing params' });
+  try {
+    const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/${id}`, {
+      method: 'PATCH',
+      headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'completed' }),
+    });
+    const text = await r.text();
+    log('APOLLO_TASK_COMPLETE', { id, status: r.status, body: text.slice(0, 200) });
+    if (r.ok) return res.json({ success: true });
+    // Try alternate field if first attempt returned 422
+    if (r.status === 422) {
+      const r2 = await fetch(`${APOLLO_BASE}/api/v1/tasks/${id}`, {
+        method: 'PATCH',
+        headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ complete: true }),
+      });
+      const text2 = await r2.text();
+      log('APOLLO_TASK_COMPLETE_RETRY', { id, status: r2.status, body: text2.slice(0, 200) });
+      return res.json({ success: r2.ok, error: r2.ok ? undefined : text2.slice(0, 100) });
+    }
+    res.json({ success: false, error: text.slice(0, 100) });
+  } catch (e) {
+    log('APOLLO_TASK_COMPLETE_ERROR', { id, error: e.message });
+    res.json({ success: false, error: e.message }); // always 200, soft-fail
+  }
+});
+
 // ── SalesRobot: list LinkedIn accounts ───────────────────────────────────────
 app.post('/api/salesrobot/accounts', async (req, res) => {
   const { srKey } = req.body;
@@ -110,8 +155,6 @@ app.post('/api/salesrobot/campaigns', async (req, res) => {
 });
 
 // ── SalesRobot: add prospect to campaign via webhook ─────────────────────────
-// Webhook addProspect supports customColumns as a stringified JSON object.
-// Campaign steps should use {{customMessage}} to reference the passed value.
 app.post('/api/salesrobot/add-prospect', async (req, res) => {
   const { webhookUuid, campaignName, prospect } = req.body;
   if (!webhookUuid || !campaignName || !prospect) {
@@ -159,14 +202,86 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
       return res.status(r.status).json(errData);
     }
 
-    // Webhook returns plain "Ok" on success — handle both JSON and plain text
     let data = {};
-    try { data = JSON.parse(text); } catch { /* plain text response like "Ok" is fine */ }
+    try { data = JSON.parse(text); } catch { /* plain "Ok" is fine */ }
     res.json({ success: true, message: text, ...data });
   } catch (e) {
     log('SR_ERROR', { error: e.message });
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Profiles ─────────────────────────────────────────────────────────────────
+app.get('/api/profiles', (req, res) => {
+  const profiles = readJson(PROFILES_FILE, []);
+  // Mask keys — only return last 4 chars for display
+  const masked = profiles.map(p => ({
+    id: p.id,
+    name: p.name,
+    apolloKeyHint:  p.apolloKey  ? '…' + p.apolloKey.slice(-4)  : '',
+    srKeyHint:      p.srKey      ? '…' + p.srKey.slice(-4)       : '',
+    webhookUuidHint: p.webhookUuid ? '…' + p.webhookUuid.slice(-4) : '',
+  }));
+  res.json({ profiles: masked });
+});
+
+app.post('/api/profiles', (req, res) => {
+  const { name, apolloKey, srKey, webhookUuid } = req.body;
+  if (!name || !apolloKey || !srKey || !webhookUuid) {
+    return res.status(400).json({ error: 'name, apolloKey, srKey, webhookUuid are all required' });
+  }
+  const profiles = readJson(PROFILES_FILE, []);
+  const id = 'p' + Date.now();
+  profiles.push({ id, name: name.trim(), apolloKey, srKey, webhookUuid });
+  writeJson(PROFILES_FILE, profiles);
+  log('PROFILE_SAVED', { id, name: name.trim() });
+  res.json({ success: true, id, name: name.trim() });
+});
+
+app.get('/api/profiles/:id/keys', (req, res) => {
+  const profiles = readJson(PROFILES_FILE, []);
+  const p = profiles.find(x => x.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'Profile not found' });
+  res.json({ apolloKey: p.apolloKey, srKey: p.srKey, webhookUuid: p.webhookUuid });
+});
+
+app.delete('/api/profiles/:id', (req, res) => {
+  let profiles = readJson(PROFILES_FILE, []);
+  const before = profiles.length;
+  profiles = profiles.filter(p => p.id !== req.params.id);
+  if (profiles.length === before) return res.status(404).json({ error: 'Profile not found' });
+  writeJson(PROFILES_FILE, profiles);
+  log('PROFILE_DELETED', { id: req.params.id });
+  res.json({ success: true });
+});
+
+// ── Sync History ──────────────────────────────────────────────────────────────
+app.get('/api/history', (req, res) => {
+  const runs = readJson(HISTORY_FILE, []);
+  res.json({ runs: runs.slice().reverse().slice(0, 100) });
+});
+
+app.post('/api/history', (req, res) => {
+  const { profileName, linkedinAccountName, connectCampaign, messageCampaign, results } = req.body;
+  if (!results) return res.status(400).json({ error: 'Missing results' });
+  const runs = readJson(HISTORY_FILE, []);
+  const succeeded = results.filter(r => r.success).length;
+  const run = {
+    id: 'h' + Date.now(),
+    timestamp: new Date().toISOString(),
+    profileName: profileName || 'Unknown',
+    linkedinAccountName: linkedinAccountName || '',
+    connectCampaign: connectCampaign || '',
+    messageCampaign: messageCampaign || '',
+    total: results.length,
+    succeeded,
+    failed: results.length - succeeded,
+    details: results,
+  };
+  runs.push(run);
+  writeJson(HISTORY_FILE, runs);
+  log('HISTORY_SAVED', { id: run.id, total: run.total, succeeded, failed: run.failed });
+  res.json({ success: true, id: run.id });
 });
 
 // ── Logs viewer ──────────────────────────────────────────────────────────────
