@@ -264,8 +264,9 @@
         document.getElementById('connectBtnText').textContent = '✓ Connected';
         btn.onclick = null;
 
-        document.getElementById('step1SuccessText').textContent =
-          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''}, ${campaigns.length} campaigns loaded.`;
+        document.getElementById('step1SuccessText').innerHTML =
+          `Connected — ${accounts.length} LinkedIn account${accounts.length !== 1 ? 's' : ''}, ${campaigns.length} campaigns loaded.`
+          + `<br><span class="text-xs text-green-600 font-mono mt-0.5 block">Webhook: …/webhooks/${escHtml(webhookUuid)}/campaign/addProspect</span>`;
         document.getElementById('step1Success').classList.remove('hidden');
 
         enableStep('step2');
