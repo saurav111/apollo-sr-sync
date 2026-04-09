@@ -69,7 +69,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
         page: 1,
       }),
     });
-    const data = await r.json();
+    const data = await safeJson(r);
     if (!r.ok) return res.status(r.status).json(data);
     res.json(data);
   } catch (e) {
