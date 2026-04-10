@@ -3,6 +3,7 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 app.use(cors());
@@ -242,45 +243,53 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
   }
 });
 
-// ── Profiles ─────────────────────────────────────────────────────────────────
+// ── Profiles (password-protected) ────────────────────────────────────────────
+// GET /api/profiles — returns id + name only (no keys, no hints)
 app.get('/api/profiles', (req, res) => {
   const profiles = readJson(PROFILES_FILE, []);
-  // Mask keys — only return last 4 chars for display
-  const masked = profiles.map(p => ({
-    id: p.id,
-    name: p.name,
-    apolloKeyHint:  p.apolloKey  ? '…' + p.apolloKey.slice(-4)  : '',
-    srKeyHint:      p.srKey      ? '…' + p.srKey.slice(-4)       : '',
-    webhookUuidHint: p.webhookUuid ? '…' + p.webhookUuid.slice(-4) : '',
-  }));
-  res.json({ profiles: masked });
+  res.json({ profiles: profiles.map(p => ({ id: p.id, name: p.name })) });
 });
 
-app.post('/api/profiles', (req, res) => {
-  const { name, apolloKey, srKey, webhookUuid } = req.body;
-  if (!name || !apolloKey || !srKey || !webhookUuid) {
-    return res.status(400).json({ error: 'name, apolloKey, srKey, webhookUuid are all required' });
+// POST /api/profiles — create profile with bcrypt-hashed password
+app.post('/api/profiles', async (req, res) => {
+  const { name, apolloKey, srKey, webhookUuid, password } = req.body;
+  if (!name || !apolloKey || !srKey || !webhookUuid || !password) {
+    return res.status(400).json({ error: 'name, apolloKey, srKey, webhookUuid, and password are all required' });
   }
   const profiles = readJson(PROFILES_FILE, []);
   const id = 'p' + Date.now();
-  profiles.push({ id, name: name.trim(), apolloKey, srKey, webhookUuid });
+  const passwordHash = bcrypt.hashSync(password, 10);
+  profiles.push({ id, name: name.trim(), apolloKey, srKey, webhookUuid, passwordHash });
   writeJson(PROFILES_FILE, profiles);
   log('PROFILE_SAVED', { id, name: name.trim() });
   res.json({ success: true, id, name: name.trim() });
 });
 
-app.get('/api/profiles/:id/keys', (req, res) => {
+// POST /api/profiles/:id/unlock — verify password and return keys
+app.post('/api/profiles/:id/unlock', (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password required' });
   const profiles = readJson(PROFILES_FILE, []);
   const p = profiles.find(x => x.id === req.params.id);
   if (!p) return res.status(404).json({ error: 'Profile not found' });
+  if (!bcrypt.compareSync(password, p.passwordHash)) {
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+  log('PROFILE_UNLOCKED', { id: p.id, name: p.name });
   res.json({ apolloKey: p.apolloKey, srKey: p.srKey, webhookUuid: p.webhookUuid });
 });
 
+// DELETE /api/profiles/:id — requires password to confirm
 app.delete('/api/profiles/:id', (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password required to delete' });
   let profiles = readJson(PROFILES_FILE, []);
-  const before = profiles.length;
-  profiles = profiles.filter(p => p.id !== req.params.id);
-  if (profiles.length === before) return res.status(404).json({ error: 'Profile not found' });
+  const p = profiles.find(x => x.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'Profile not found' });
+  if (!bcrypt.compareSync(password, p.passwordHash)) {
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+  profiles = profiles.filter(x => x.id !== req.params.id);
   writeJson(PROFILES_FILE, profiles);
   log('PROFILE_DELETED', { id: req.params.id });
   res.json({ success: true });
