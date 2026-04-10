@@ -52,14 +52,31 @@ async function safeJson(r) {
   catch (e) { throw new Error(`Non-JSON response (HTTP ${r.status}): ${text.slice(0, 200)}`); }
 }
 
-// ── Apollo: fetch open LinkedIn tasks (all pages) ────────────────────────────
-// Note: Apollo has no /users/me endpoint. User filtering is done by passing
-// the user_id extracted from the first task response (tasks always include
-// the owner's user_id). For now we filter by task_types only (LinkedIn tasks).
+const LINKEDIN_TASK_TYPES = new Set(['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other']);
+
+// Get current user's ID via email_accounts endpoint (most reliable non-/me approach)
+async function getApolloUserId(apolloKey) {
+  const r = await fetch(`${APOLLO_BASE}/api/v1/email_accounts`, {
+    headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data.message || data.error || `Apollo /email_accounts failed (HTTP ${r.status})`);
+  // email_accounts returns an array; each entry has user_id
+  const accounts = data.email_accounts || data.emailAccounts || [];
+  const userId = accounts[0]?.user_id;
+  if (!userId) throw new Error('Could not resolve Apollo user ID from email_accounts response');
+  log('APOLLO_USER_ID', { userId, source: 'email_accounts' });
+  return userId;
+}
+
+// ── Apollo: fetch open LinkedIn tasks (all pages, current user only) ─────────
 app.post('/api/apollo/tasks', async (req, res) => {
   const { apolloKey } = req.body;
   if (!apolloKey) return res.status(400).json({ error: 'Missing apolloKey' });
   try {
+    // Resolve current user ID so we only return tasks owned by this API key's user
+    const userId = await getApolloUserId(apolloKey);
+
     const PER_PAGE = 100;
     const MAX_PAGES = 20;
     let page = 1, allTasks = [], totalPages = 1;
@@ -73,8 +90,9 @@ app.post('/api/apollo/tasks', async (req, res) => {
           'Cache-Control': 'no-cache',
         },
         body: JSON.stringify({
-          task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
-          open_factor_names: ['task_types'],
+          task_types: [...LINKEDIN_TASK_TYPES],
+          open_factor_names: ['task_types', 'user_ids'],
+          user_ids: [userId],
           per_page: PER_PAGE,
           page,
         }),
@@ -89,8 +107,10 @@ app.post('/api/apollo/tasks', async (req, res) => {
       page++;
     } while (page <= totalPages && page <= MAX_PAGES);
 
-    log('APOLLO_TASKS_TOTAL', { total: allTasks.length });
-    res.json({ tasks: allTasks, pagination: { total: allTasks.length } });
+    // Post-filter as a safety net: only LinkedIn task types owned by this user
+    const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === userId);
+    log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, userId });
+    res.json({ tasks: filtered, pagination: { total: filtered.length } });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -370,7 +390,8 @@ async function runAutoSyncForProfile(profile) {
   log('AUTOSYNC_START', { profileId: profile.id, name: profile.name });
 
   try {
-    // Fetch all open LinkedIn tasks (filtered by task_types only)
+    // Resolve user ID, then fetch and filter LinkedIn tasks owned by this user
+    const userId = await getApolloUserId(profile.apolloKey);
     const PER_PAGE = 100, MAX_PAGES = 20;
     let page = 1, allTasks = [], totalPages = 1;
     do {
@@ -378,8 +399,9 @@ async function runAutoSyncForProfile(profile) {
         method: 'POST',
         headers: { 'x-api-key': profile.apolloKey, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
         body: JSON.stringify({
-          task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
-          open_factor_names: ['task_types'],
+          task_types: [...LINKEDIN_TASK_TYPES],
+          open_factor_names: ['task_types', 'user_ids'],
+          user_ids: [userId],
           per_page: PER_PAGE,
           page,
         }),
@@ -391,7 +413,10 @@ async function runAutoSyncForProfile(profile) {
       page++;
     } while (page <= totalPages && page <= MAX_PAGES);
 
-    // 3. Filter out already-synced task IDs
+    // Post-filter: only LinkedIn types owned by this user
+    allTasks = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === userId);
+
+    // Filter out already-synced task IDs
     const synced = new Set(readJson(SYNCED_FILE, []));
     const newTasks = allTasks.filter(t => t.contact?.linkedin_url && !synced.has(t.id));
     log('AUTOSYNC_NEW_TASKS', { profileId: profile.id, total: allTasks.length, newCount: newTasks.length });
