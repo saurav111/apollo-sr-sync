@@ -10,9 +10,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const LOG_FILE      = path.join(__dirname, 'sync.log');
-const HISTORY_FILE  = path.join(__dirname, 'history.json');
-const PROFILES_FILE = path.join(__dirname, 'profiles.json');
+const LOG_FILE         = path.join(__dirname, 'sync.log');
+const HISTORY_FILE     = path.join(__dirname, 'history.json');
+const PROFILES_FILE    = path.join(__dirname, 'profiles.json');
+const SYNCED_FILE      = path.join(__dirname, 'synced_tasks.json');
 
 function log(tag, data) {
   const line = `[${new Date().toISOString()}] [${tag}] ${JSON.stringify(data)}\n`;
@@ -334,6 +335,172 @@ app.get('/api/logs', (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ── Auto-sync ─────────────────────────────────────────────────────────────────
+const POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+let autoSyncStatus = {}; // { [profileId]: { lastRun, lastCount, running } }
+
+// Configure auto-sync for a profile (enable/disable + store campaign settings)
+app.post('/api/profiles/:id/autosync', (req, res) => {
+  const { enable, connectCampaignName, messageCampaignName, linkedinAccountUuid, linkedinAccountName } = req.body;
+  let profiles = readJson(PROFILES_FILE, []);
+  const idx = profiles.findIndex(p => p.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Profile not found' });
+
+  if (enable) {
+    if (!connectCampaignName || !messageCampaignName || !linkedinAccountUuid) {
+      return res.status(400).json({ error: 'connectCampaignName, messageCampaignName, linkedinAccountUuid required to enable' });
+    }
+    profiles[idx] = { ...profiles[idx], autoSync: true, connectCampaignName, messageCampaignName, linkedinAccountUuid, linkedinAccountName: linkedinAccountName || '' };
+    log('AUTOSYNC_ENABLED', { id: req.params.id, connectCampaignName, messageCampaignName });
+  } else {
+    profiles[idx] = { ...profiles[idx], autoSync: false };
+    log('AUTOSYNC_DISABLED', { id: req.params.id });
+  }
+
+  writeJson(PROFILES_FILE, profiles);
+  res.json({ success: true, autoSync: profiles[idx].autoSync });
+});
+
+// Status of auto-sync runs
+app.get('/api/autosync/status', (req, res) => {
+  const profiles = readJson(PROFILES_FILE, []);
+  const status = profiles
+    .filter(p => p.autoSync)
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      connectCampaignName: p.connectCampaignName,
+      messageCampaignName: p.messageCampaignName,
+      ...( autoSyncStatus[p.id] || { lastRun: null, lastCount: 0, running: false }),
+    }));
+  res.json({ status });
+});
+
+// Core auto-sync logic for one profile
+async function runAutoSyncForProfile(profile) {
+  if (autoSyncStatus[profile.id]?.running) return; // already running
+  autoSyncStatus[profile.id] = { ...autoSyncStatus[profile.id], running: true };
+  log('AUTOSYNC_START', { profileId: profile.id, name: profile.name });
+
+  try {
+    // 1. Resolve current user ID
+    const userId = await getApolloUserId(profile.apolloKey);
+
+    // 2. Fetch all open LinkedIn tasks for this user
+    const PER_PAGE = 100, MAX_PAGES = 20;
+    let page = 1, allTasks = [], totalPages = 1;
+    do {
+      const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
+        method: 'POST',
+        headers: { 'x-api-key': profile.apolloKey, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        body: JSON.stringify({
+          task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
+          open_factor_names: ['task_types'],
+          user_ids: [userId],
+          per_page: PER_PAGE,
+          page,
+        }),
+      });
+      const data = await safeJson(r);
+      if (!r.ok) throw new Error(data.message || data.error || `Apollo tasks failed (HTTP ${r.status})`);
+      allTasks = allTasks.concat(data.tasks || []);
+      totalPages = data.pagination?.total_pages || 1;
+      page++;
+    } while (page <= totalPages && page <= MAX_PAGES);
+
+    // 3. Filter out already-synced task IDs
+    const synced = new Set(readJson(SYNCED_FILE, []));
+    const newTasks = allTasks.filter(t => t.contact?.linkedin_url && !synced.has(t.id));
+    log('AUTOSYNC_NEW_TASKS', { profileId: profile.id, total: allTasks.length, newCount: newTasks.length });
+
+    if (!newTasks.length) {
+      autoSyncStatus[profile.id] = { lastRun: new Date().toISOString(), lastCount: 0, running: false };
+      return;
+    }
+
+    // 4. Push each new task to SalesRobot
+    const results = [];
+    for (const task of newTasks) {
+      const contact       = task.contact || {};
+      const name          = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
+      const taskType      = task.type || '';
+      const customMessage = task.standalone_outreach_task_message?.body_text || '';
+      const campaignName  = taskType.includes('connect') ? profile.connectCampaignName : profile.messageCampaignName;
+
+      const payload = {
+        campaignName,
+        profileUrl:  contact.linkedin_url,
+        firstName:   contact.first_name   || '',
+        lastName:    contact.last_name    || '',
+        emailId:     contact.email        || '',
+        jobTitle:    contact.title        || '',
+        companyName: contact.organization_name || '',
+      };
+      if (customMessage) payload.customColumns = JSON.stringify({ customMessage });
+
+      const webhookUrl = `${SR_WEBHOOK}/${profile.webhookUuid}/campaign/addProspect`;
+      try {
+        const r = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const text = await r.text();
+        const success = r.ok;
+        results.push({ taskId: task.id, name, taskType, success, error: success ? undefined : text.slice(0, 100) });
+        if (success) {
+          synced.add(task.id);
+          // Mark complete in Apollo (soft-fail)
+          fetch(`${APOLLO_BASE}/api/v1/tasks/${task.id}`, {
+            method: 'PATCH',
+            headers: { 'x-api-key': profile.apolloKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'completed' }),
+          }).catch(() => {});
+        }
+      } catch (e) {
+        results.push({ taskId: task.id, name, taskType, success: false, error: e.message });
+      }
+    }
+
+    // 5. Persist synced IDs
+    writeJson(SYNCED_FILE, [...synced]);
+
+    // 6. Write history entry
+    const succeeded = results.filter(r => r.success).length;
+    const runs = readJson(HISTORY_FILE, []);
+    runs.push({
+      id: 'h' + Date.now(),
+      timestamp: new Date().toISOString(),
+      profileName: profile.name,
+      linkedinAccountName: profile.linkedinAccountName || '',
+      connectCampaign: profile.connectCampaignName,
+      messageCampaign: profile.messageCampaignName,
+      total: results.length,
+      succeeded,
+      failed: results.length - succeeded,
+      details: results,
+      auto: true,
+    });
+    writeJson(HISTORY_FILE, runs);
+
+    autoSyncStatus[profile.id] = { lastRun: new Date().toISOString(), lastCount: results.length, running: false };
+    log('AUTOSYNC_DONE', { profileId: profile.id, name: profile.name, synced: succeeded, failed: results.length - succeeded });
+  } catch (e) {
+    log('AUTOSYNC_ERROR', { profileId: profile.id, error: e.message });
+    autoSyncStatus[profile.id] = { lastRun: new Date().toISOString(), lastCount: 0, running: false, error: e.message };
+  }
+}
+
+// Poll loop
+async function runAutoSync() {
+  const profiles = readJson(PROFILES_FILE, []);
+  const active = profiles.filter(p => p.autoSync);
+  if (active.length) log('AUTOSYNC_POLL', { activeProfiles: active.length });
+  for (const profile of active) {
+    await runAutoSyncForProfile(profile);
+  }
+}
+
+setInterval(runAutoSync, POLL_INTERVAL_MS);
+// Also run once 60s after startup (give server time to fully start)
+setTimeout(runAutoSync, 60_000);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Apollo → SalesRobot sync running on http://localhost:${PORT}`));

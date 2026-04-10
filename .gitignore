@@ -3,3 +3,4 @@ sync.log
 .env
 profiles.json
 history.json
+synced_tasks.json
