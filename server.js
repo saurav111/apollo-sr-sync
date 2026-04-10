@@ -50,11 +50,27 @@ async function safeJson(r) {
   catch (e) { throw new Error(`Non-JSON response (HTTP ${r.status}): ${text.slice(0, 200)}`); }
 }
 
-// ── Apollo: fetch open LinkedIn tasks (all pages) ────────────────────────────
+// ── Apollo: get current user ID ──────────────────────────────────────────────
+async function getApolloUserId(apolloKey) {
+  const r = await fetch(`${APOLLO_BASE}/api/v1/users/me`, {
+    headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+  });
+  const data = await safeJson(r);
+  if (!r.ok) throw new Error(data.message || data.error || `Apollo /me failed (HTTP ${r.status})`);
+  const userId = data.user?.id || data.id;
+  if (!userId) throw new Error('Could not determine Apollo user ID from /me response');
+  log('APOLLO_ME', { userId, name: data.user?.name || data.name });
+  return userId;
+}
+
+// ── Apollo: fetch open LinkedIn tasks (all pages, current user only) ─────────
 app.post('/api/apollo/tasks', async (req, res) => {
   const { apolloKey } = req.body;
   if (!apolloKey) return res.status(400).json({ error: 'Missing apolloKey' });
   try {
+    // Identify the current user so we only fetch their tasks
+    const userId = await getApolloUserId(apolloKey);
+
     const PER_PAGE = 100;
     const MAX_PAGES = 20;
     let page = 1, allTasks = [], totalPages = 1;
@@ -70,6 +86,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
         body: JSON.stringify({
           task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
           open_factor_names: ['task_types'],
+          user_ids: [userId],
           per_page: PER_PAGE,
           page,
         }),
