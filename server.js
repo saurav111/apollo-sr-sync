@@ -50,28 +50,42 @@ async function safeJson(r) {
   catch (e) { throw new Error(`Non-JSON response (HTTP ${r.status}): ${text.slice(0, 200)}`); }
 }
 
-// ── Apollo: fetch open LinkedIn tasks ────────────────────────────────────────
+// ── Apollo: fetch open LinkedIn tasks (all pages) ────────────────────────────
 app.post('/api/apollo/tasks', async (req, res) => {
   const { apolloKey } = req.body;
   if (!apolloKey) return res.status(400).json({ error: 'Missing apolloKey' });
   try {
-    const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apolloKey,
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
-      },
-      body: JSON.stringify({
-        task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
-        open_factor_names: ['task_types'],
-        per_page: 100,
-        page: 1,
-      }),
-    });
-    const data = await safeJson(r);
-    if (!r.ok) return res.status(r.status).json(data);
-    res.json(data);
+    const PER_PAGE = 100;
+    const MAX_PAGES = 20;
+    let page = 1, allTasks = [], totalPages = 1;
+
+    do {
+      const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apolloKey,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
+          open_factor_names: ['task_types'],
+          per_page: PER_PAGE,
+          page,
+        }),
+      });
+      const data = await safeJson(r);
+      if (!r.ok) return res.status(r.status).json(data);
+
+      const tasks = data.tasks || [];
+      allTasks = allTasks.concat(tasks);
+      totalPages = data.pagination?.total_pages || 1;
+      log('APOLLO_TASKS_PAGE', { page, fetched: tasks.length, totalPages });
+      page++;
+    } while (page <= totalPages && page <= MAX_PAGES);
+
+    log('APOLLO_TASKS_TOTAL', { total: allTasks.length });
+    res.json({ tasks: allTasks, pagination: { total: allTasks.length } });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
