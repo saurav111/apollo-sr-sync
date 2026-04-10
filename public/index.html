@@ -40,7 +40,7 @@
   <main class="max-w-2xl mx-auto px-4 py-10 space-y-6">
 
     <!-- Profile selector bar -->
-    <div id="profileBar" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+    <div id="profileBar" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-3">
       <div class="flex items-center gap-3">
         <label class="text-sm font-medium text-gray-700 shrink-0">Profile</label>
         <select id="profileSelect" onchange="onProfileSelect()"
@@ -54,6 +54,17 @@
           </svg>
         </button>
       </div>
+      <!-- Password unlock row (shown when a saved profile is selected) -->
+      <div id="profileUnlockRow" class="hidden flex gap-2">
+        <input id="profilePasswordInput" type="password" placeholder="Profile password"
+          class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          onkeydown="if(event.key==='Enter') unlockProfile()" />
+        <button onclick="unlockProfile()"
+          class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+          Unlock
+        </button>
+      </div>
+      <p id="profileUnlockError" class="hidden text-xs text-red-500"></p>
     </div>
 
     <!-- Step 1: API Keys -->
@@ -65,31 +76,35 @@
       <div class="space-y-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Apollo API Key</label>
-          <input id="apolloKey" type="text" autocomplete="off" spellcheck="false"
+          <input id="apolloKey" type="password" autocomplete="off" spellcheck="false"
             placeholder="Paste your Apollo API key"
             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
           <p class="text-xs text-gray-400 mt-1">Apollo → Settings → Integrations → API</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">SalesRobot API Key</label>
-          <input id="srKey" type="text" autocomplete="off" spellcheck="false"
+          <input id="srKey" type="password" autocomplete="off" spellcheck="false"
             placeholder="Paste your SalesRobot API key"
             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
           <p class="text-xs text-gray-400 mt-1">SalesRobot → Settings → API Key</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">SalesRobot Webhook UUID</label>
-          <input id="srWebhookUuid" type="text" autocomplete="off" spellcheck="false"
+          <input id="srWebhookUuid" type="password" autocomplete="off" spellcheck="false"
             placeholder="e.g. 59972011-eb19-400f-97d3-6fc9e0be3d07"
             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
           <p class="text-xs text-gray-400 mt-1">SalesRobot → Settings → Integrations → Webhooks (Inbound)</p>
         </div>
 
-        <!-- Profile name (shown when saving a new profile) -->
-        <div id="profileNameRow" class="hidden">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Save as profile (optional)</label>
+        <!-- Profile name + password (shown when saving a new profile) -->
+        <div id="profileNameRow" class="hidden space-y-2">
+          <label class="block text-sm font-medium text-gray-700">Save as profile (optional)</label>
           <div class="flex gap-2">
             <input id="profileNameInput" type="text" placeholder="e.g. Maria, Saurav…"
+              class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div class="flex gap-2">
+            <input id="profileSavePassword" type="password" placeholder="Set a profile password"
               class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             <button onclick="saveProfile()"
               class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
@@ -297,85 +312,128 @@
         const sel = document.getElementById('profileSelect');
         sel.innerHTML = '<option value="">— new profile —</option>' +
           (data.profiles || []).map(p =>
-            `<option value="${escHtml(p.id)}">${escHtml(p.name)} (apollo:${escHtml(p.apolloKeyHint)}, sr:${escHtml(p.srKeyHint)})</option>`
+            `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`
           ).join('');
-        // Restore selected profile if we have one
         if (state.currentProfileId) sel.value = state.currentProfileId;
       } catch { /* silently ignore */ }
     }
 
-    async function onProfileSelect() {
+    function onProfileSelect() {
       const id = document.getElementById('profileSelect').value;
-      document.getElementById('deleteProfileBtn').classList.toggle('hidden', !id);
-      document.getElementById('profileNameRow').classList.toggle('hidden', !!id);
+      // Clear key fields whenever selection changes
+      document.getElementById('apolloKey').value = '';
+      document.getElementById('srKey').value = '';
+      document.getElementById('srWebhookUuid').value = '';
+      document.getElementById('profileUnlockError').classList.add('hidden');
+      document.getElementById('profilePasswordInput').value = '';
+      state.currentProfileId = null;
 
       if (!id) {
-        // Clear fields for new profile entry
-        document.getElementById('apolloKey').value = '';
-        document.getElementById('srKey').value = '';
-        document.getElementById('srWebhookUuid').value = '';
-        state.currentProfileId = null;
-        return;
+        document.getElementById('profileUnlockRow').classList.add('hidden');
+        document.getElementById('deleteProfileBtn').classList.add('hidden');
+        document.getElementById('profileNameRow').classList.remove('hidden');
+      } else {
+        document.getElementById('profileUnlockRow').classList.remove('hidden');
+        document.getElementById('deleteProfileBtn').classList.remove('hidden');
+        document.getElementById('profileNameRow').classList.add('hidden');
       }
+    }
 
-      // Load full keys for selected profile
+    async function unlockProfile() {
+      const id = document.getElementById('profileSelect').value;
+      const password = document.getElementById('profilePasswordInput').value;
+      if (!id || !password) return;
+      document.getElementById('profileUnlockError').classList.add('hidden');
       try {
-        const res = await fetch(`/api/profiles/${id}/keys`);
+        const res = await fetch(`/api/profiles/${id}/unlock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
         const data = await res.json();
+        if (!res.ok) {
+          document.getElementById('profileUnlockError').textContent = data.error || 'Incorrect password';
+          document.getElementById('profileUnlockError').classList.remove('hidden');
+          return;
+        }
         document.getElementById('apolloKey').value = data.apolloKey || '';
         document.getElementById('srKey').value = data.srKey || '';
         document.getElementById('srWebhookUuid').value = data.webhookUuid || '';
+        document.getElementById('profilePasswordInput').value = '';
+        document.getElementById('profileUnlockRow').classList.add('hidden');
         state.currentProfileId = id;
-      } catch { showError('step1Error', 'Failed to load profile keys'); }
+      } catch (e) {
+        document.getElementById('profileUnlockError').textContent = e.message;
+        document.getElementById('profileUnlockError').classList.remove('hidden');
+      }
     }
 
     async function saveProfile() {
-      const name = document.getElementById('profileNameInput').value.trim();
-      if (!name) return;
+      const name     = document.getElementById('profileNameInput').value.trim();
+      const password = document.getElementById('profileSavePassword').value;
+      const msgEl    = document.getElementById('saveProfileMsg');
+      if (!name || !password) {
+        msgEl.textContent = 'Profile name and password are required.';
+        msgEl.className = 'text-xs mt-1 text-red-500';
+        msgEl.classList.remove('hidden');
+        return;
+      }
       const apolloKey   = document.getElementById('apolloKey').value.trim();
       const srKey       = document.getElementById('srKey').value.trim();
       const webhookUuid = document.getElementById('srWebhookUuid').value.trim();
       if (!apolloKey || !srKey || !webhookUuid) {
-        document.getElementById('saveProfileMsg').textContent = 'Fill in all fields first.';
-        document.getElementById('saveProfileMsg').className = 'text-xs mt-1 text-red-500';
-        document.getElementById('saveProfileMsg').classList.remove('hidden');
+        msgEl.textContent = 'Fill in all API key fields first.';
+        msgEl.className = 'text-xs mt-1 text-red-500';
+        msgEl.classList.remove('hidden');
         return;
       }
       try {
         const res = await fetch('/api/profiles', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, apolloKey, srKey, webhookUuid }),
+          body: JSON.stringify({ name, apolloKey, srKey, webhookUuid, password }),
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         state.currentProfileId = data.id;
         document.getElementById('profileNameInput').value = '';
-        document.getElementById('saveProfileMsg').textContent = `Profile "${name}" saved!`;
-        document.getElementById('saveProfileMsg').className = 'text-xs mt-1 text-green-600';
-        document.getElementById('saveProfileMsg').classList.remove('hidden');
+        document.getElementById('profileSavePassword').value = '';
+        msgEl.textContent = `Profile "${name}" saved!`;
+        msgEl.className = 'text-xs mt-1 text-green-600';
+        msgEl.classList.remove('hidden');
         await loadProfiles();
         document.getElementById('profileSelect').value = data.id;
         document.getElementById('deleteProfileBtn').classList.remove('hidden');
         document.getElementById('profileNameRow').classList.add('hidden');
-        setTimeout(() => document.getElementById('saveProfileMsg').classList.add('hidden'), 3000);
+        setTimeout(() => msgEl.classList.add('hidden'), 3000);
       } catch (e) {
-        document.getElementById('saveProfileMsg').textContent = e.message;
-        document.getElementById('saveProfileMsg').className = 'text-xs mt-1 text-red-500';
-        document.getElementById('saveProfileMsg').classList.remove('hidden');
+        msgEl.textContent = e.message;
+        msgEl.className = 'text-xs mt-1 text-red-500';
+        msgEl.classList.remove('hidden');
       }
     }
 
     async function deleteProfile() {
       const id = document.getElementById('profileSelect').value;
-      if (!id || !confirm('Delete this profile?')) return;
+      if (!id) return;
+      const password = prompt('Enter the profile password to confirm deletion:');
+      if (!password) return;
       try {
-        await fetch(`/api/profiles/${id}`, { method: 'DELETE' });
+        const res = await fetch(`/api/profiles/${id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!res.ok) return alert(data.error || 'Could not delete profile');
         state.currentProfileId = null;
-        document.getElementById('profileSelect').value = '';
+        document.getElementById('apolloKey').value = '';
+        document.getElementById('srKey').value = '';
+        document.getElementById('srWebhookUuid').value = '';
+        document.getElementById('profileUnlockRow').classList.add('hidden');
         document.getElementById('deleteProfileBtn').classList.add('hidden');
         await loadProfiles();
-      } catch { /* silently ignore */ }
+      } catch (e) { alert(e.message); }
     }
 
     // ── Step 1: Connect ───────────────────────────────────────────────────────
