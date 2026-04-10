@@ -87,7 +87,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
         },
         body: JSON.stringify({
           task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
-          open_factor_names: ['task_types'],
+          open_factor_names: ['task_types', 'user_ids'],
           user_ids: [userId],
           per_page: PER_PAGE,
           page,
@@ -396,7 +396,7 @@ async function runAutoSyncForProfile(profile) {
         headers: { 'x-api-key': profile.apolloKey, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
         body: JSON.stringify({
           task_types: ['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other'],
-          open_factor_names: ['task_types'],
+          open_factor_names: ['task_types', 'user_ids'],
           user_ids: [userId],
           per_page: PER_PAGE,
           page,
