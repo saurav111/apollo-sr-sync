@@ -54,29 +54,54 @@ async function safeJson(r) {
 
 const LINKEDIN_TASK_TYPES = new Set(['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other']);
 
-// Get current user's ID via email_accounts endpoint (most reliable non-/me approach)
-async function getApolloUserId(apolloKey) {
-  const r = await fetch(`${APOLLO_BASE}/api/v1/email_accounts`, {
-    headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
-  });
-  const data = await safeJson(r);
-  if (!r.ok) throw new Error(data.message || data.error || `Apollo /email_accounts failed (HTTP ${r.status})`);
-  // email_accounts returns an array; each entry has user_id
-  const accounts = data.email_accounts || data.emailAccounts || [];
-  const userId = accounts[0]?.user_id;
-  if (!userId) throw new Error('Could not resolve Apollo user ID from email_accounts response');
-  log('APOLLO_USER_ID', { userId, source: 'email_accounts' });
-  return userId;
-}
-
-// ── Apollo: fetch open LinkedIn tasks (all pages, current user only) ─────────
-app.post('/api/apollo/tasks', async (req, res) => {
+// ── Apollo: detect org users from tasks (for user picker) ────────────────────
+// Fetches one page of tasks (all types), collects unique user_ids, resolves
+// each to a name/email via GET /api/v1/users/:id, returns a list to pick from.
+app.post('/api/apollo/detect-users', async (req, res) => {
   const { apolloKey } = req.body;
   if (!apolloKey) return res.status(400).json({ error: 'Missing apolloKey' });
   try {
-    // Resolve current user ID so we only return tasks owned by this API key's user
-    const userId = await getApolloUserId(apolloKey);
+    // Fetch one page of tasks (no type filter — maximise chance of hitting all users)
+    const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
+      method: 'POST',
+      headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      body: JSON.stringify({ per_page: 100, page: 1 }),
+    });
+    const data = await safeJson(r);
+    if (!r.ok) return res.status(r.status).json(data);
 
+    // Collect unique user_ids from tasks
+    const userIds = [...new Set((data.tasks || []).map(t => t.user_id).filter(Boolean))];
+    log('APOLLO_DETECT_USERS', { uniqueUserIds: userIds.length });
+
+    if (!userIds.length) return res.json({ users: [] });
+
+    // Resolve each user_id to name + email
+    const users = await Promise.all(userIds.map(async (id) => {
+      try {
+        const ur = await fetch(`${APOLLO_BASE}/api/v1/users/${id}`, {
+          headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+        });
+        const udata = await ur.json();
+        const u = udata.user || udata;
+        return { id, name: u.name || u.first_name || id, email: u.email || '' };
+      } catch {
+        return { id, name: id, email: '' };
+      }
+    }));
+
+    res.json({ users });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Apollo: fetch open LinkedIn tasks (all pages, specific user) ──────────────
+app.post('/api/apollo/tasks', async (req, res) => {
+  const { apolloKey, apolloUserId } = req.body;
+  if (!apolloKey) return res.status(400).json({ error: 'Missing apolloKey' });
+  if (!apolloUserId) return res.status(400).json({ error: 'Missing apolloUserId — select your user in profile setup' });
+  try {
     const PER_PAGE = 100;
     const MAX_PAGES = 20;
     let page = 1, allTasks = [], totalPages = 1;
@@ -92,7 +117,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
         body: JSON.stringify({
           task_types: [...LINKEDIN_TASK_TYPES],
           open_factor_names: ['task_types', 'user_ids'],
-          user_ids: [userId],
+          user_ids: [apolloUserId],
           per_page: PER_PAGE,
           page,
         }),
@@ -107,9 +132,9 @@ app.post('/api/apollo/tasks', async (req, res) => {
       page++;
     } while (page <= totalPages && page <= MAX_PAGES);
 
-    // Post-filter as a safety net: only LinkedIn task types owned by this user
-    const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === userId);
-    log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, userId });
+    // Post-filter: safety net for type and ownership
+    const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === apolloUserId);
+    log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, apolloUserId });
     res.json({ tasks: filtered, pagination: { total: filtered.length } });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -259,16 +284,16 @@ app.get('/api/profiles', (req, res) => {
 
 // POST /api/profiles — create profile with bcrypt-hashed password
 app.post('/api/profiles', async (req, res) => {
-  const { name, apolloKey, srKey, webhookUuid, password } = req.body;
+  const { name, apolloKey, srKey, webhookUuid, password, apolloUserId, apolloUserName } = req.body;
   if (!name || !apolloKey || !srKey || !webhookUuid || !password) {
     return res.status(400).json({ error: 'name, apolloKey, srKey, webhookUuid, and password are all required' });
   }
   const profiles = readJson(PROFILES_FILE, []);
   const id = 'p' + Date.now();
   const passwordHash = bcrypt.hashSync(password, 10);
-  profiles.push({ id, name: name.trim(), apolloKey, srKey, webhookUuid, passwordHash });
+  profiles.push({ id, name: name.trim(), apolloKey, srKey, webhookUuid, passwordHash, apolloUserId: apolloUserId || null, apolloUserName: apolloUserName || null });
   writeJson(PROFILES_FILE, profiles);
-  log('PROFILE_SAVED', { id, name: name.trim() });
+  log('PROFILE_SAVED', { id, name: name.trim(), apolloUserId });
   res.json({ success: true, id, name: name.trim() });
 });
 
@@ -283,7 +308,7 @@ app.post('/api/profiles/:id/unlock', (req, res) => {
     return res.status(401).json({ error: 'Incorrect password' });
   }
   log('PROFILE_UNLOCKED', { id: p.id, name: p.name });
-  res.json({ apolloKey: p.apolloKey, srKey: p.srKey, webhookUuid: p.webhookUuid });
+  res.json({ apolloKey: p.apolloKey, srKey: p.srKey, webhookUuid: p.webhookUuid, apolloUserId: p.apolloUserId || null, apolloUserName: p.apolloUserName || null });
 });
 
 // DELETE /api/profiles/:id — requires password to confirm
@@ -390,8 +415,12 @@ async function runAutoSyncForProfile(profile) {
   log('AUTOSYNC_START', { profileId: profile.id, name: profile.name });
 
   try {
-    // Resolve user ID, then fetch and filter LinkedIn tasks owned by this user
-    const userId = await getApolloUserId(profile.apolloKey);
+    const userId = profile.apolloUserId;
+    if (!userId) {
+      log('AUTOSYNC_SKIP', { profileId: profile.id, reason: 'no apolloUserId set — open profile and select your user' });
+      autoSyncStatus[profile.id] = { lastRun: new Date().toISOString(), lastCount: 0, running: false, error: 'Apollo user not selected — unlock profile to set' };
+      return;
+    }
     const PER_PAGE = 100, MAX_PAGES = 20;
     let page = 1, allTasks = [], totalPages = 1;
     do {
