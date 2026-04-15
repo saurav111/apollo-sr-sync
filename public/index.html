@@ -133,6 +133,20 @@
           <p id="saveProfileMsg" class="text-xs mt-1 hidden"></p>
         </div>
 
+        <!-- Update profile (shown when an existing profile is loaded) -->
+        <div id="profileUpdateRow" class="hidden space-y-2">
+          <label class="block text-sm font-medium text-gray-700">Update profile</label>
+          <div class="flex gap-2">
+            <input id="profileUpdatePassword" type="password" placeholder="Enter your profile password to save changes"
+              class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <button onclick="updateProfile()"
+              class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors">
+              Update
+            </button>
+          </div>
+          <p id="updateProfileMsg" class="text-xs mt-1 hidden"></p>
+        </div>
+
         <button id="connectBtn" onclick="connectAccounts()"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
           <span id="connectBtnText">Connect & Continue</span>
@@ -464,6 +478,35 @@
       }
     }
 
+    async function updateProfile() {
+      const password = document.getElementById('profileUpdatePassword').value;
+      const msgEl    = document.getElementById('updateProfileMsg');
+      if (!password) {
+        msgEl.textContent = 'Password required to save changes.';
+        msgEl.className = 'text-xs mt-1 text-red-500';
+        msgEl.classList.remove('hidden');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/profiles/${state.currentProfileId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password, apolloUserId: state.apolloUserId, apolloUserName: state.apolloUserName }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        document.getElementById('profileUpdatePassword').value = '';
+        msgEl.textContent = 'Profile updated!';
+        msgEl.className = 'text-xs mt-1 text-green-600';
+        msgEl.classList.remove('hidden');
+        setTimeout(() => msgEl.classList.add('hidden'), 3000);
+      } catch (e) {
+        msgEl.textContent = e.message;
+        msgEl.className = 'text-xs mt-1 text-red-500';
+        msgEl.classList.remove('hidden');
+      }
+    }
+
     async function deleteProfile() {
       const id = document.getElementById('profileSelect').value;
       if (!id) return;
@@ -578,9 +621,11 @@
           + `<br><span class="text-xs text-green-600 font-mono mt-0.5 block">Webhook: …/webhooks/${escHtml(webhookUuid)}/campaign/addProspect</span>`;
         document.getElementById('step1Success').classList.remove('hidden');
 
-        // Show user picker + save-profile row if not using a saved profile
+        // Show user picker + appropriate save row
         document.getElementById('apolloUserRow').classList.remove('hidden');
-        if (!state.currentProfileId) {
+        if (state.currentProfileId) {
+          document.getElementById('profileUpdateRow').classList.remove('hidden');
+        } else {
           document.getElementById('profileNameRow').classList.remove('hidden');
         }
 
