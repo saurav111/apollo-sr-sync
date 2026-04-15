@@ -311,6 +311,23 @@ app.post('/api/profiles/:id/unlock', (req, res) => {
   res.json({ apolloKey: p.apolloKey, srKey: p.srKey, webhookUuid: p.webhookUuid, apolloUserId: p.apolloUserId || null, apolloUserName: p.apolloUserName || null });
 });
 
+// PATCH /api/profiles/:id — update apolloUserId/apolloUserName on existing profile
+app.patch('/api/profiles/:id', (req, res) => {
+  const { password, apolloUserId, apolloUserName } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password required' });
+  const profiles = readJson(PROFILES_FILE, []);
+  const p = profiles.find(x => x.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'Profile not found' });
+  if (!bcrypt.compareSync(password, p.passwordHash)) {
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+  p.apolloUserId = apolloUserId || null;
+  p.apolloUserName = apolloUserName || null;
+  writeJson(PROFILES_FILE, profiles);
+  log('PROFILE_UPDATED', { id: p.id, name: p.name, apolloUserId });
+  res.json({ success: true });
+});
+
 // DELETE /api/profiles/:id — requires password to confirm
 app.delete('/api/profiles/:id', (req, res) => {
   const { password } = req.body;
