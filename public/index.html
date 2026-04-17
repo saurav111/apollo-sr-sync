@@ -357,16 +357,27 @@
         const res = await fetch('/api/profiles');
         const data = await res.json();
         const sel = document.getElementById('profileSelect');
+        const profiles = data.profiles || [];
         sel.innerHTML = '<option value="">— new profile —</option>' +
-          (data.profiles || []).map(p =>
+          profiles.map(p =>
             `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`
           ).join('');
-        if (state.currentProfileId) sel.value = state.currentProfileId;
+        if (state.currentProfileId) {
+          sel.value = state.currentProfileId;
+        } else {
+          // Restore last-used profile from localStorage
+          const lastId = localStorage.getItem('apolloSync_lastProfileId');
+          if (lastId && profiles.find(p => p.id === lastId)) {
+            sel.value = lastId;
+            onProfileSelect();
+          }
+        }
       } catch { /* silently ignore */ }
     }
 
     function onProfileSelect() {
       const id = document.getElementById('profileSelect').value;
+      localStorage.setItem('apolloSync_lastProfileId', id || '');
       // Clear key fields whenever selection changes
       document.getElementById('apolloKey').value = '';
       document.getElementById('srKey').value = '';
@@ -424,6 +435,7 @@
         }
 
         document.getElementById('autoSyncRow').classList.remove('hidden');
+        document.getElementById('profileUpdateRow').classList.remove('hidden');
         checkAutoSyncStatus();
       } catch (e) {
         document.getElementById('profileUnlockError').textContent = e.message;
@@ -1021,6 +1033,8 @@
             messageCampaignName: messageCampaign,
             linkedinAccountUuid: state.linkedinAccountUuid,
             linkedinAccountName: state.linkedinAccountName,
+            apolloUserId: state.apolloUserId,
+            apolloUserName: state.apolloUserName,
           }),
         });
         const data = await res.json();

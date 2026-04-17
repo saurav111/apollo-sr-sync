@@ -390,7 +390,7 @@ let autoSyncStatus = {}; // { [profileId]: { lastRun, lastCount, running } }
 
 // Configure auto-sync for a profile (enable/disable + store campaign settings)
 app.post('/api/profiles/:id/autosync', (req, res) => {
-  const { enable, connectCampaignName, messageCampaignName, linkedinAccountUuid, linkedinAccountName } = req.body;
+  const { enable, connectCampaignName, messageCampaignName, linkedinAccountUuid, linkedinAccountName, apolloUserId, apolloUserName } = req.body;
   let profiles = readJson(PROFILES_FILE, []);
   const idx = profiles.findIndex(p => p.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Profile not found' });
@@ -400,7 +400,12 @@ app.post('/api/profiles/:id/autosync', (req, res) => {
       return res.status(400).json({ error: 'connectCampaignName, messageCampaignName, linkedinAccountUuid required to enable' });
     }
     profiles[idx] = { ...profiles[idx], autoSync: true, connectCampaignName, messageCampaignName, linkedinAccountUuid, linkedinAccountName: linkedinAccountName || '' };
-    log('AUTOSYNC_ENABLED', { id: req.params.id, connectCampaignName, messageCampaignName });
+    // Write apolloUserId if the client knows it (belt-and-suspenders alongside PATCH)
+    if (apolloUserId) {
+      profiles[idx].apolloUserId   = apolloUserId;
+      profiles[idx].apolloUserName = apolloUserName || profiles[idx].apolloUserName || null;
+    }
+    log('AUTOSYNC_ENABLED', { id: req.params.id, connectCampaignName, messageCampaignName, apolloUserId: profiles[idx].apolloUserId });
   } else {
     profiles[idx] = { ...profiles[idx], autoSync: false };
     log('AUTOSYNC_DISABLED', { id: req.params.id });
