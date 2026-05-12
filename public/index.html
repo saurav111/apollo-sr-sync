@@ -880,6 +880,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            profileId: state.currentProfileId || null,
             profileName: state.currentProfileId ? profileName.split(' (')[0] : 'Unknown',
             linkedinAccountName: state.linkedinAccountName,
             connectCampaign: state.connectCampaignName,
@@ -941,7 +942,9 @@
       const container = document.getElementById('historyContent');
       container.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">Loading…</p>';
       try {
-        const res = await fetch('/api/history');
+        const profileId = state.currentProfileId;
+        const url = profileId ? `/api/history?profileId=${encodeURIComponent(profileId)}` : '/api/history';
+        const res = await fetch(url);
         const data = await res.json();
         const runs = data.runs || [];
         if (!runs.length) {

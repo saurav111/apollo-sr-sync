@@ -4,7 +4,13 @@ services:
     runtime: node
     buildCommand: npm install
     startCommand: node server.js
-    plan: free
+    plan: starter
+    disk:
+      name: apollo-sr-sync-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATA_DIR
+        value: /var/data

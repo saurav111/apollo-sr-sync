@@ -10,10 +10,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const LOG_FILE         = path.join(__dirname, 'sync.log');
-const HISTORY_FILE     = path.join(__dirname, 'history.json');
-const PROFILES_FILE    = path.join(__dirname, 'profiles.json');
-const SYNCED_FILE      = path.join(__dirname, 'synced_tasks.json');
+const DATA_DIR         = process.env.DATA_DIR || __dirname;
+const LOG_FILE         = path.join(DATA_DIR, 'sync.log');
+const HISTORY_FILE     = path.join(DATA_DIR, 'history.json');
+const PROFILES_FILE    = path.join(DATA_DIR, 'profiles.json');
+const SYNCED_FILE      = path.join(DATA_DIR, 'synced_tasks.json');
 
 function log(tag, data) {
   const line = `[${new Date().toISOString()}] [${tag}] ${JSON.stringify(data)}\n`;
@@ -346,18 +347,21 @@ app.delete('/api/profiles/:id', (req, res) => {
 
 // ── Sync History ──────────────────────────────────────────────────────────────
 app.get('/api/history', (req, res) => {
+  const { profileId } = req.query;
   const runs = readJson(HISTORY_FILE, []);
-  res.json({ runs: runs.slice().reverse().slice(0, 100) });
+  const filtered = profileId ? runs.filter(r => r.profileId === profileId) : runs;
+  res.json({ runs: filtered.slice().reverse().slice(0, 100) });
 });
 
 app.post('/api/history', (req, res) => {
-  const { profileName, linkedinAccountName, connectCampaign, messageCampaign, results } = req.body;
+  const { profileId, profileName, linkedinAccountName, connectCampaign, messageCampaign, results } = req.body;
   if (!results) return res.status(400).json({ error: 'Missing results' });
   const runs = readJson(HISTORY_FILE, []);
   const succeeded = results.filter(r => r.success).length;
   const run = {
     id: 'h' + Date.now(),
     timestamp: new Date().toISOString(),
+    profileId: profileId || null,
     profileName: profileName || 'Unknown',
     linkedinAccountName: linkedinAccountName || '',
     connectCampaign: connectCampaign || '',
@@ -369,7 +373,7 @@ app.post('/api/history', (req, res) => {
   };
   runs.push(run);
   writeJson(HISTORY_FILE, runs);
-  log('HISTORY_SAVED', { id: run.id, total: run.total, succeeded, failed: run.failed });
+  log('HISTORY_SAVED', { id: run.id, profileId: run.profileId, total: run.total, succeeded, failed: run.failed });
   res.json({ success: true, id: run.id });
 });
 
@@ -526,6 +530,7 @@ async function runAutoSyncForProfile(profile) {
     runs.push({
       id: 'h' + Date.now(),
       timestamp: new Date().toISOString(),
+      profileId: profile.id,
       profileName: profile.name,
       linkedinAccountName: profile.linkedinAccountName || '',
       connectCampaign: profile.connectCampaignName,
