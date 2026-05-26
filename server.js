@@ -14,7 +14,10 @@ const DATA_DIR         = process.env.DATA_DIR || __dirname;
 const LOG_FILE         = path.join(DATA_DIR, 'sync.log');
 const HISTORY_FILE     = path.join(DATA_DIR, 'history.json');
 const PROFILES_FILE    = path.join(DATA_DIR, 'profiles.json');
-const SYNCED_FILE      = path.join(DATA_DIR, 'synced_tasks.json');
+
+function syncedFileForProfile(profileId) {
+  return path.join(DATA_DIR, `synced_tasks_${profileId}.json`);
+}
 
 function log(tag, data) {
   const line = `[${new Date().toISOString()}] [${tag}] ${JSON.stringify(data)}\n`;
@@ -471,8 +474,9 @@ async function runAutoSyncForProfile(profile) {
     // Post-filter: only LinkedIn types owned by this user
     allTasks = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === userId);
 
-    // Filter out already-synced task IDs
-    const synced = new Set(readJson(SYNCED_FILE, []));
+    // Filter out already-synced task IDs (scoped per profile to prevent cross-account leakage)
+    const syncedFile = syncedFileForProfile(profile.id);
+    const synced = new Set(readJson(syncedFile, []));
     const newTasks = allTasks.filter(t => t.contact?.linkedin_url && !synced.has(t.id));
     log('AUTOSYNC_NEW_TASKS', { profileId: profile.id, total: allTasks.length, newCount: newTasks.length });
 
@@ -521,8 +525,8 @@ async function runAutoSyncForProfile(profile) {
       }
     }
 
-    // 5. Persist synced IDs
-    writeJson(SYNCED_FILE, [...synced]);
+    // 5. Persist synced IDs (per-profile file)
+    writeJson(syncedFile, [...synced]);
 
     // 6. Write history entry
     const succeeded = results.filter(r => r.success).length;
