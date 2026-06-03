@@ -170,9 +170,29 @@ app.post('/api/apollo/tasks', async (req, res) => {
     const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === apolloUserId);
     log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, apolloUserId });
 
-    // Log field names of first task once so we can confirm which fields are present
-    if (filtered.length) {
-      log('TASK_KEYS', { keys: Object.keys(filtered[0]), emailer_step_id: filtered[0].emailer_step_id || null, emailer_campaign_id: filtered[0].emailer_campaign_id || null });
+    // Diagnostic: log fields from the first sequence-based message task to find where content lives
+    const diagTask = filtered.find(t => t.type === 'linkedin_step_message' && t.emailer_campaign_id)
+                  || filtered.find(t => t.emailer_campaign_id)
+                  || filtered[0];
+    if (diagTask) {
+      log('TASK_KEYS', {
+        type: diagTask.type,
+        keys: Object.keys(diagTask),
+        emailer_step_id: diagTask.emailer_step_id ?? null,
+        emailer_campaign_id: diagTask.emailer_campaign_id ?? null,
+        note: diagTask.note ?? null,
+        standalone_outreach_task_message: diagTask.standalone_outreach_task_message ?? null,
+      });
+      // Also try the individual task GET to see if it returns more fields
+      try {
+        const tr = await fetch(`${APOLLO_BASE}/api/v1/tasks/${diagTask.id}`, {
+          headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+        });
+        const ttext = await tr.text();
+        log('TASK_SINGLE_FETCH', { id: diagTask.id, status: tr.status, body: ttext.slice(0, 2000) });
+      } catch (e) {
+        log('TASK_SINGLE_FETCH_ERROR', { id: diagTask.id, error: e.message });
+      }
     }
 
     // Enrich tasks: fetch step template directly by emailer_step_id
