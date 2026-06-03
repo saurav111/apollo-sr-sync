@@ -67,6 +67,56 @@ function getTaskMessage(task) {
   return task.standalone_outreach_task_message?.body_text || null;
 }
 
+// Cache fetched task lists per userId to avoid hammering Apollo's 200 req/hr limit.
+const taskListCache = {}; // userId → { tasks, fetchedAt }
+const TASK_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+async function fetchAllApolloTasks(apolloKey, apolloUserId) {
+  const cached = taskListCache[apolloUserId];
+  if (cached && Date.now() - cached.fetchedAt < TASK_CACHE_TTL_MS) {
+    log('APOLLO_TASKS_CACHE_HIT', { apolloUserId, age_s: Math.round((Date.now() - cached.fetchedAt) / 1000), count: cached.tasks.length });
+    return cached.tasks;
+  }
+
+  const PER_PAGE = 100, MAX_PAGES = 50;
+  let page = 1, allTasks = [], totalPages = 1;
+
+  do {
+    const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
+      method: 'POST',
+      headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+      body: JSON.stringify({
+        task_types: [...LINKEDIN_TASK_TYPES],
+        open_factor_names: ['task_types', 'user_ids'],
+        user_ids: [apolloUserId],
+        per_page: PER_PAGE,
+        page,
+      }),
+    });
+
+    if (r.status === 429) {
+      log('APOLLO_TASKS_RATE_LIMITED', { page, fetchedSoFar: allTasks.length });
+      break; // return what we have; next call within TTL will hit cache
+    }
+
+    const data = await safeJson(r);
+    if (!r.ok) throw new Error(data.message || data.error || `Apollo tasks failed (HTTP ${r.status})`);
+
+    const tasks = data.tasks || [];
+    allTasks = allTasks.concat(tasks);
+    totalPages = data.pagination?.total_pages || 1;
+    log('APOLLO_TASKS_PAGE', { page, fetched: tasks.length, totalPages });
+    page++;
+  } while (page <= totalPages && page <= MAX_PAGES);
+
+  // Filter: only LinkedIn types owned by this user
+  const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === apolloUserId);
+  log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, apolloUserId });
+
+  taskListCache[apolloUserId] = { tasks: filtered, fetchedAt: Date.now() };
+  return filtered;
+}
+
 const LINKEDIN_TASK_TYPES = new Set(['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other']);
 
 // ── Apollo: detect org users from tasks (for user picker) ────────────────────
@@ -117,39 +167,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
   if (!apolloKey) return res.status(400).json({ error: 'Missing apolloKey' });
   if (!apolloUserId) return res.status(400).json({ error: 'Missing apolloUserId — select your user in profile setup' });
   try {
-    const PER_PAGE = 100;
-    const MAX_PAGES = 50;
-    let page = 1, allTasks = [], totalPages = 1;
-
-    do {
-      const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
-        method: 'POST',
-        headers: {
-          'x-api-key': apolloKey,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-        },
-        body: JSON.stringify({
-          task_types: [...LINKEDIN_TASK_TYPES],
-          open_factor_names: ['task_types', 'user_ids'],
-          user_ids: [apolloUserId],
-          per_page: PER_PAGE,
-          page,
-        }),
-      });
-      const data = await safeJson(r);
-      if (!r.ok) return res.status(r.status).json(data);
-
-      const tasks = data.tasks || [];
-      allTasks = allTasks.concat(tasks);
-      totalPages = data.pagination?.total_pages || 1;
-      log('APOLLO_TASKS_PAGE', { page, fetched: tasks.length, totalPages });
-      page++;
-    } while (page <= totalPages && page <= MAX_PAGES);
-
-    // Post-filter: safety net for type and ownership
-    const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === apolloUserId);
-    log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, apolloUserId });
+    const filtered = await fetchAllApolloTasks(apolloKey, apolloUserId);
 
     // Enrich tasks: inject customMessage via getTaskMessage so frontend reads it uniformly
     const enriched = filtered.map(t => {
@@ -469,29 +487,7 @@ async function runAutoSyncForProfile(profile) {
       autoSyncStatus[profile.id] = { lastRun: new Date().toISOString(), lastCount: 0, running: false, error: 'Apollo user not selected — unlock profile to set' };
       return;
     }
-    const PER_PAGE = 100, MAX_PAGES = 50;
-    let page = 1, allTasks = [], totalPages = 1;
-    do {
-      const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
-        method: 'POST',
-        headers: { 'x-api-key': profile.apolloKey, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-        body: JSON.stringify({
-          task_types: [...LINKEDIN_TASK_TYPES],
-          open_factor_names: ['task_types', 'user_ids'],
-          user_ids: [userId],
-          per_page: PER_PAGE,
-          page,
-        }),
-      });
-      const data = await safeJson(r);
-      if (!r.ok) throw new Error(data.message || data.error || `Apollo tasks failed (HTTP ${r.status})`);
-      allTasks = allTasks.concat(data.tasks || []);
-      totalPages = data.pagination?.total_pages || 1;
-      page++;
-    } while (page <= totalPages && page <= MAX_PAGES);
-
-    // Post-filter: only LinkedIn types owned by this user
-    allTasks = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === userId);
+    const allTasks = await fetchAllApolloTasks(profile.apolloKey, userId);
 
     // Filter out already-synced task IDs (scoped per profile to prevent cross-account leakage)
     const syncedFile = syncedFileForProfile(profile.id);
