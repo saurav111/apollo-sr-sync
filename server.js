@@ -68,13 +68,27 @@ async function fetchSequenceSteps(apolloKey, campaignId) {
       headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
     });
     const text = await r.text();
-    log('SEQUENCE_FETCH', { campaignId, status: r.status, body: text.slice(0, 1000) });
     if (!r.ok) { sequenceStepCache[campaignId] = null; return null; }
 
     const data = JSON.parse(text);
     // Apollo may nest under emailer_campaign or return top-level
     const campaign = data?.emailer_campaign || data;
     const steps = campaign?.emailer_steps || [];
+
+    log('SEQUENCE_STEPS', {
+      campaignId,
+      stepCount: steps.length,
+      steps: steps.map(s => ({
+        id: s.id,
+        type: s.type,
+        note: s.note || null,
+        touchCount: (s.emailer_touches || []).length,
+        touches: (s.emailer_touches || []).map(t => ({
+          templateBodyText: t.emailer_template?.body_text?.slice(0, 100) || null,
+          bodyText: t.body_text?.slice(0, 100) || null,
+        })),
+      })),
+    });
 
     // Build stepId → message map; extract body from emailer_touches → emailer_template
     const map = {};
@@ -88,6 +102,7 @@ async function fetchSequenceSteps(apolloKey, campaignId) {
       if (!map[step.id] && step.note) map[step.id] = step.note;
     }
 
+    log('SEQUENCE_STEP_MAP', { campaignId, mappedSteps: Object.keys(map).length, map });
     sequenceStepCache[campaignId] = map;
     return map;
   } catch (e) {
