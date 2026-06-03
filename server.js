@@ -50,10 +50,51 @@ const APOLLO_BASE = 'https://api.apollo.io';
 
 async function safeJson(r) {
   const text = await r.text();
-  log('RAW_RESPONSE', { status: r.status, url: r.url, body: text.slice(0, 500) });
+  log('RAW_RESPONSE', { status: r.status, url: r.url, body: text.slice(0, 2000) });
   if (!text) throw new Error(`Empty response (HTTP ${r.status})`);
   try { return JSON.parse(text); }
   catch (e) { throw new Error(`Non-JSON response (HTTP ${r.status}): ${text.slice(0, 200)}`); }
+}
+
+// Cache sequence step templates per campaign ID for the lifetime of one server process.
+// Key: campaignId → Map<stepId, messageText> (or null if fetch failed)
+const sequenceStepCache = {};
+
+async function fetchSequenceSteps(apolloKey, campaignId) {
+  if (campaignId in sequenceStepCache) return sequenceStepCache[campaignId];
+
+  try {
+    const r = await fetch(`${APOLLO_BASE}/api/v1/emailer_campaigns/${campaignId}`, {
+      headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+    });
+    const text = await r.text();
+    log('SEQUENCE_FETCH', { campaignId, status: r.status, body: text.slice(0, 1000) });
+    if (!r.ok) { sequenceStepCache[campaignId] = null; return null; }
+
+    const data = JSON.parse(text);
+    // Apollo may nest under emailer_campaign or return top-level
+    const campaign = data?.emailer_campaign || data;
+    const steps = campaign?.emailer_steps || [];
+
+    // Build stepId → message map; extract body from emailer_touches → emailer_template
+    const map = {};
+    for (const step of steps) {
+      const touches = step.emailer_touches || [];
+      for (const touch of touches) {
+        const body = touch.emailer_template?.body_text || touch.body_text || null;
+        if (body) { map[step.id] = body; break; }
+      }
+      // Some step formats put the note directly on the step
+      if (!map[step.id] && step.note) map[step.id] = step.note;
+    }
+
+    sequenceStepCache[campaignId] = map;
+    return map;
+  } catch (e) {
+    log('SEQUENCE_FETCH_ERROR', { campaignId, error: e.message });
+    sequenceStepCache[campaignId] = null;
+    return null;
+  }
 }
 
 const LINKEDIN_TASK_TYPES = new Set(['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other']);
@@ -244,7 +285,7 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
   };
 
   if (prospect.customMessage) {
-    payload.customColumns = JSON.stringify({ customMessage: prospect.customMessage });
+    payload.customColumns = { customMessage: prospect.customMessage };
   }
 
   const webhookUrl = `${SR_WEBHOOK}/${webhookUuid}/campaign/addProspect`;
@@ -485,14 +526,36 @@ async function runAutoSyncForProfile(profile) {
       return;
     }
 
+    // Log full object of first new task once per run so we can inspect all available fields
+    log('TASK_DIAGNOSTIC', { profileId: profile.id, firstTask: newTasks[0] });
+
+    // Pre-fetch sequence step templates for all unique campaigns in this batch
+    const uniqueCampaignIds = [...new Set(newTasks.map(t => t.emailer_campaign_id).filter(Boolean))];
+    await Promise.all(uniqueCampaignIds.map(id => fetchSequenceSteps(profile.apolloKey, id)));
+
     // 4. Push each new task to SalesRobot
     const results = [];
     for (const task of newTasks) {
       const contact       = task.contact || {};
       const name          = contact.name || [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.linkedin_url;
       const taskType      = task.type || '';
-      const customMessage = task.standalone_outreach_task_message?.body_text || '';
       const campaignName  = taskType.includes('connect') ? profile.connectCampaignName : profile.messageCampaignName;
+
+      // Resolve message: prefer sequence step template, fall back to standalone task message
+      let customMessage = task.standalone_outreach_task_message?.body_text || '';
+      if (!customMessage && task.emailer_campaign_id) {
+        const stepMap = sequenceStepCache[task.emailer_campaign_id];
+        if (stepMap) {
+          // Match by emailer_step_id if present on the task (may appear in full object)
+          if (task.emailer_step_id && stepMap[task.emailer_step_id]) {
+            customMessage = stepMap[task.emailer_step_id];
+          } else {
+            // Fall back to first step with any message content
+            customMessage = Object.values(stepMap)[0] || '';
+          }
+        }
+      }
+      log('TASK_MESSAGE', { taskId: task.id, taskType, emailerStepId: task.emailer_step_id || null, hasMessage: !!customMessage });
 
       const payload = {
         campaignName,
@@ -503,7 +566,7 @@ async function runAutoSyncForProfile(profile) {
         jobTitle:    contact.title        || '',
         companyName: contact.organization_name || '',
       };
-      if (customMessage) payload.customColumns = JSON.stringify({ customMessage });
+      if (customMessage) payload.customColumns = { customMessage };
 
       const webhookUrl = `${SR_WEBHOOK}/${profile.webhookUuid}/campaign/addProspect`;
       try {
