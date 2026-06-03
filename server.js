@@ -64,16 +64,39 @@ async function fetchSequenceSteps(apolloKey, campaignId) {
   if (campaignId in sequenceStepCache) return sequenceStepCache[campaignId];
 
   try {
-    const r = await fetch(`${APOLLO_BASE}/api/v1/emailer_campaigns/${campaignId}`, {
+    // Try 1: GET /api/v1/emailer_campaigns/:id (returns campaign but steps are empty in practice)
+    // Try 2: GET /api/v1/emailer_campaigns/:id/emailer_steps (sub-resource)
+    // Try 3: POST /api/v1/emailer_steps/search with campaign filter
+    let steps = [];
+
+    const r1 = await fetch(`${APOLLO_BASE}/api/v1/emailer_campaigns/${campaignId}`, {
       headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
     });
-    const text = await r.text();
-    if (!r.ok) { sequenceStepCache[campaignId] = null; return null; }
+    const text1 = await r1.text();
+    if (r1.ok) {
+      const d = JSON.parse(text1);
+      steps = (d?.emailer_campaign || d)?.emailer_steps || [];
+    }
 
-    const data = JSON.parse(text);
-    // Apollo may nest under emailer_campaign or return top-level
-    const campaign = data?.emailer_campaign || data;
-    const steps = campaign?.emailer_steps || [];
+    if (!steps.length) {
+      const r2 = await fetch(`${APOLLO_BASE}/api/v1/emailer_campaigns/${campaignId}/emailer_steps`, {
+        headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+      });
+      const text2 = await r2.text();
+      log('SEQUENCE_STEPS_SUB', { campaignId, status: r2.status, body: text2.slice(0, 500) });
+      if (r2.ok) steps = JSON.parse(text2)?.emailer_steps || JSON.parse(text2)?.steps || [];
+    }
+
+    if (!steps.length) {
+      const r3 = await fetch(`${APOLLO_BASE}/api/v1/emailer_steps/search`, {
+        method: 'POST',
+        headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailer_campaign_id: campaignId }),
+      });
+      const text3 = await r3.text();
+      log('SEQUENCE_STEPS_SEARCH', { campaignId, status: r3.status, body: text3.slice(0, 500) });
+      if (r3.ok) steps = JSON.parse(text3)?.emailer_steps || JSON.parse(text3)?.steps || [];
+    }
 
     log('SEQUENCE_STEPS', {
       campaignId,
