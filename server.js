@@ -56,81 +56,32 @@ async function safeJson(r) {
   catch (e) { throw new Error(`Non-JSON response (HTTP ${r.status}): ${text.slice(0, 200)}`); }
 }
 
-// Cache sequence step templates per campaign ID for the lifetime of one server process.
-// Key: campaignId → Map<stepId, messageText> (or null if fetch failed)
-const sequenceStepCache = {};
+// Cache step templates by stepId for the lifetime of one server process.
+const stepTemplateCache = {}; // stepId → messageText | null
 
-async function fetchSequenceSteps(apolloKey, campaignId) {
-  if (campaignId in sequenceStepCache) return sequenceStepCache[campaignId];
-
+async function fetchStepTemplate(apolloKey, stepId) {
+  if (stepId in stepTemplateCache) return stepTemplateCache[stepId];
   try {
-    // Try 1: GET /api/v1/emailer_campaigns/:id (returns campaign but steps are empty in practice)
-    // Try 2: GET /api/v1/emailer_campaigns/:id/emailer_steps (sub-resource)
-    // Try 3: POST /api/v1/emailer_steps/search with campaign filter
-    let steps = [];
-
-    const r1 = await fetch(`${APOLLO_BASE}/api/v1/emailer_campaigns/${campaignId}`, {
+    const r = await fetch(`${APOLLO_BASE}/api/v1/emailer_steps/${stepId}`, {
       headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
     });
-    const text1 = await r1.text();
-    if (r1.ok) {
-      const d = JSON.parse(text1);
-      steps = (d?.emailer_campaign || d)?.emailer_steps || [];
+    const text = await r.text();
+    log('STEP_FETCH', { stepId, status: r.status, body: text.slice(0, 500) });
+    if (!r.ok) { stepTemplateCache[stepId] = null; return null; }
+    const data = JSON.parse(text);
+    const step = data?.emailer_step || data;
+    const touches = step?.emailer_touches || [];
+    let msg = null;
+    for (const touch of touches) {
+      msg = touch?.emailer_template?.body_text || touch?.body_text || null;
+      if (msg) break;
     }
-
-    if (!steps.length) {
-      const r2 = await fetch(`${APOLLO_BASE}/api/v1/emailer_campaigns/${campaignId}/emailer_steps`, {
-        headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
-      });
-      const text2 = await r2.text();
-      log('SEQUENCE_STEPS_SUB', { campaignId, status: r2.status, body: text2.slice(0, 500) });
-      if (r2.ok) steps = JSON.parse(text2)?.emailer_steps || JSON.parse(text2)?.steps || [];
-    }
-
-    if (!steps.length) {
-      const r3 = await fetch(`${APOLLO_BASE}/api/v1/emailer_steps/search`, {
-        method: 'POST',
-        headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailer_campaign_id: campaignId }),
-      });
-      const text3 = await r3.text();
-      log('SEQUENCE_STEPS_SEARCH', { campaignId, status: r3.status, body: text3.slice(0, 500) });
-      if (r3.ok) steps = JSON.parse(text3)?.emailer_steps || JSON.parse(text3)?.steps || [];
-    }
-
-    log('SEQUENCE_STEPS', {
-      campaignId,
-      stepCount: steps.length,
-      steps: steps.map(s => ({
-        id: s.id,
-        type: s.type,
-        note: s.note || null,
-        touchCount: (s.emailer_touches || []).length,
-        touches: (s.emailer_touches || []).map(t => ({
-          templateBodyText: t.emailer_template?.body_text?.slice(0, 100) || null,
-          bodyText: t.body_text?.slice(0, 100) || null,
-        })),
-      })),
-    });
-
-    // Build stepId → message map; extract body from emailer_touches → emailer_template
-    const map = {};
-    for (const step of steps) {
-      const touches = step.emailer_touches || [];
-      for (const touch of touches) {
-        const body = touch.emailer_template?.body_text || touch.body_text || null;
-        if (body) { map[step.id] = body; break; }
-      }
-      // Some step formats put the note directly on the step
-      if (!map[step.id] && step.note) map[step.id] = step.note;
-    }
-
-    log('SEQUENCE_STEP_MAP', { campaignId, mappedSteps: Object.keys(map).length, map });
-    sequenceStepCache[campaignId] = map;
-    return map;
+    if (!msg) msg = step?.note || null;
+    stepTemplateCache[stepId] = msg;
+    return msg;
   } catch (e) {
-    log('SEQUENCE_FETCH_ERROR', { campaignId, error: e.message });
-    sequenceStepCache[campaignId] = null;
+    log('STEP_FETCH_ERROR', { stepId, error: e.message });
+    stepTemplateCache[stepId] = null;
     return null;
   }
 }
@@ -219,17 +170,18 @@ app.post('/api/apollo/tasks', async (req, res) => {
     const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === apolloUserId);
     log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, apolloUserId });
 
-    // Enrich tasks with sequence step templates so the frontend has customMessage ready
-    const uniqueCampaignIds = [...new Set(filtered.map(t => t.emailer_campaign_id).filter(Boolean))];
-    await Promise.all(uniqueCampaignIds.map(id => fetchSequenceSteps(apolloKey, id)));
-    const enriched = filtered.map(t => {
+    // Log field names of first task once so we can confirm which fields are present
+    if (filtered.length) {
+      log('TASK_KEYS', { keys: Object.keys(filtered[0]), emailer_step_id: filtered[0].emailer_step_id || null, emailer_campaign_id: filtered[0].emailer_campaign_id || null });
+    }
+
+    // Enrich tasks: fetch step template directly by emailer_step_id
+    const enriched = await Promise.all(filtered.map(async t => {
       if (t.standalone_outreach_task_message?.body_text) return t;
-      if (!t.emailer_campaign_id) return t;
-      const stepMap = sequenceStepCache[t.emailer_campaign_id];
-      if (!stepMap) return t;
-      const msg = (t.emailer_step_id && stepMap[t.emailer_step_id]) || Object.values(stepMap)[0] || '';
+      if (!t.emailer_step_id) return t;
+      const msg = await fetchStepTemplate(apolloKey, t.emailer_step_id);
       return msg ? { ...t, standalone_outreach_task_message: { body_text: msg } } : t;
-    });
+    }));
 
     res.json({ tasks: enriched, pagination: { total: enriched.length } });
   } catch (e) {
@@ -577,12 +529,10 @@ async function runAutoSyncForProfile(profile) {
       return;
     }
 
-    // Log full object of first new task once per run so we can inspect all available fields
-    log('TASK_DIAGNOSTIC', { profileId: profile.id, firstTask: newTasks[0] });
-
-    // Pre-fetch sequence step templates for all unique campaigns in this batch
-    const uniqueCampaignIds = [...new Set(newTasks.map(t => t.emailer_campaign_id).filter(Boolean))];
-    await Promise.all(uniqueCampaignIds.map(id => fetchSequenceSteps(profile.apolloKey, id)));
+    // Log field names of first new task so we can confirm which fields are present
+    if (newTasks.length) {
+      log('TASK_KEYS', { profileId: profile.id, keys: Object.keys(newTasks[0]), emailer_step_id: newTasks[0].emailer_step_id || null, emailer_campaign_id: newTasks[0].emailer_campaign_id || null });
+    }
 
     // 4. Push each new task to SalesRobot
     const results = [];
@@ -592,19 +542,10 @@ async function runAutoSyncForProfile(profile) {
       const taskType      = task.type || '';
       const campaignName  = taskType.includes('connect') ? profile.connectCampaignName : profile.messageCampaignName;
 
-      // Resolve message: prefer sequence step template, fall back to standalone task message
+      // Resolve message: standalone task message first, then fetch step template by ID
       let customMessage = task.standalone_outreach_task_message?.body_text || '';
-      if (!customMessage && task.emailer_campaign_id) {
-        const stepMap = sequenceStepCache[task.emailer_campaign_id];
-        if (stepMap) {
-          // Match by emailer_step_id if present on the task (may appear in full object)
-          if (task.emailer_step_id && stepMap[task.emailer_step_id]) {
-            customMessage = stepMap[task.emailer_step_id];
-          } else {
-            // Fall back to first step with any message content
-            customMessage = Object.values(stepMap)[0] || '';
-          }
-        }
+      if (!customMessage && task.emailer_step_id) {
+        customMessage = await fetchStepTemplate(profile.apolloKey, task.emailer_step_id) || '';
       }
       log('TASK_MESSAGE', { taskId: task.id, taskType, emailerStepId: task.emailer_step_id || null, hasMessage: !!customMessage });
 
