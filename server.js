@@ -148,7 +148,7 @@ app.post('/api/apollo/tasks', async (req, res) => {
   if (!apolloUserId) return res.status(400).json({ error: 'Missing apolloUserId — select your user in profile setup' });
   try {
     const PER_PAGE = 100;
-    const MAX_PAGES = 20;
+    const MAX_PAGES = 50;
     let page = 1, allTasks = [], totalPages = 1;
 
     do {
@@ -180,7 +180,20 @@ app.post('/api/apollo/tasks', async (req, res) => {
     // Post-filter: safety net for type and ownership
     const filtered = allTasks.filter(t => LINKEDIN_TASK_TYPES.has(t.type) && t.user_id === apolloUserId);
     log('APOLLO_TASKS_TOTAL', { raw: allTasks.length, afterFilter: filtered.length, apolloUserId });
-    res.json({ tasks: filtered, pagination: { total: filtered.length } });
+
+    // Enrich tasks with sequence step templates so the frontend has customMessage ready
+    const uniqueCampaignIds = [...new Set(filtered.map(t => t.emailer_campaign_id).filter(Boolean))];
+    await Promise.all(uniqueCampaignIds.map(id => fetchSequenceSteps(apolloKey, id)));
+    const enriched = filtered.map(t => {
+      if (t.standalone_outreach_task_message?.body_text) return t;
+      if (!t.emailer_campaign_id) return t;
+      const stepMap = sequenceStepCache[t.emailer_campaign_id];
+      if (!stepMap) return t;
+      const msg = (t.emailer_step_id && stepMap[t.emailer_step_id]) || Object.values(stepMap)[0] || '';
+      return msg ? { ...t, standalone_outreach_task_message: { body_text: msg } } : t;
+    });
+
+    res.json({ tasks: enriched, pagination: { total: enriched.length } });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -491,7 +504,7 @@ async function runAutoSyncForProfile(profile) {
       autoSyncStatus[profile.id] = { lastRun: new Date().toISOString(), lastCount: 0, running: false, error: 'Apollo user not selected — unlock profile to set' };
       return;
     }
-    const PER_PAGE = 100, MAX_PAGES = 20;
+    const PER_PAGE = 100, MAX_PAGES = 50;
     let page = 1, allTasks = [], totalPages = 1;
     do {
       const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
