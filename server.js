@@ -281,7 +281,7 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
   };
 
   if (prospect.customMessage) {
-    payload.customColumns = { customMessage: prospect.customMessage };
+    payload.customColumns = JSON.stringify({ customMessage: prospect.customMessage });
   }
 
   const webhookUrl = `${SR_WEBHOOK}/${webhookUuid}/campaign/addProspect`;
@@ -520,7 +520,7 @@ async function runAutoSyncForProfile(profile) {
         jobTitle:    contact.title        || '',
         companyName: contact.organization_name || '',
       };
-      if (customMessage) payload.customColumns = { customMessage };
+      if (customMessage) payload.customColumns = JSON.stringify({ customMessage });
 
       const webhookUrl = `${SR_WEBHOOK}/${profile.webhookUuid}/campaign/addProspect`;
       try {
