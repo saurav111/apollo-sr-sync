@@ -60,13 +60,11 @@ async function safeJson(r) {
 // Sequence tasks carry linkedin_emailer_template; standalone tasks use standalone_outreach_task_message.
 function getTaskMessage(task) {
   const tpl = task.linkedin_emailer_template;
-  let msg = null;
   if (tpl) {
-    msg = typeof tpl === 'string' ? tpl : (tpl.body_text || tpl.body || tpl.note || null);
-  } else {
-    msg = task.standalone_outreach_task_message?.body_text || null;
+    if (typeof tpl === 'string') return tpl || null;
+    return tpl.body_text || tpl.body || tpl.note || null;
   }
-  return msg ? msg.trim() : null;
+  return task.standalone_outreach_task_message?.body_text || null;
 }
 
 // Cache fetched task lists per userId to avoid hammering Apollo's 200 req/hr limit.
@@ -283,7 +281,7 @@ app.post('/api/salesrobot/add-prospect', async (req, res) => {
   };
 
   if (prospect.customMessage) {
-    payload.customMessage = prospect.customMessage.trim();
+    payload.customColumns = JSON.stringify({ customMessage: prospect.customMessage });
   }
 
   const webhookUrl = `${SR_WEBHOOK}/${webhookUuid}/campaign/addProspect`;
@@ -522,7 +520,7 @@ async function runAutoSyncForProfile(profile) {
         jobTitle:    contact.title        || '',
         companyName: contact.organization_name || '',
       };
-      if (customMessage) payload.customMessage = customMessage;
+      if (customMessage) payload.customColumns = JSON.stringify({ customMessage });
 
       const webhookUrl = `${SR_WEBHOOK}/${profile.webhookUuid}/campaign/addProspect`;
       try {
