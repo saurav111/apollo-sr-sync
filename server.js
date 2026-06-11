@@ -60,11 +60,13 @@ async function safeJson(r) {
 // Sequence tasks carry linkedin_emailer_template; standalone tasks use standalone_outreach_task_message.
 function getTaskMessage(task) {
   const tpl = task.linkedin_emailer_template;
+  let msg = null;
   if (tpl) {
-    if (typeof tpl === 'string') return tpl || null;
-    return tpl.body_text || tpl.body || tpl.note || null;
+    msg = typeof tpl === 'string' ? tpl : (tpl.body_text || tpl.body || tpl.note || null);
+  } else {
+    msg = task.standalone_outreach_task_message?.body_text || null;
   }
-  return task.standalone_outreach_task_message?.body_text || null;
+  return msg ? msg.trim() : null;
 }
 
 // Cache fetched task lists per userId to avoid hammering Apollo's 200 req/hr limit.
