@@ -121,46 +121,67 @@ async function fetchAllApolloTasks(apolloKey, apolloUserId) {
 
 const LINKEDIN_TASK_TYPES = new Set(['linkedin_step_message', 'linkedin_step_connect', 'linkedin_step_other']);
 
-// ── Apollo: detect org users from tasks (for user picker) ────────────────────
-// Fetches one page of tasks (all types), collects unique user_ids, resolves
-// each to a name/email via GET /api/v1/users/:id, returns a list to pick from.
+// ── Apollo: detect org users (for user picker) ───────────────────────────────
+// Primary: GET /api/v1/users/search (lists all teammates, requires master key)
+// Fallback: scan first page of tasks for user_ids (if non-master key)
 app.post('/api/apollo/detect-users', async (req, res) => {
   const { apolloKey } = req.body;
   if (!apolloKey) return res.status(400).json({ error: 'Missing apolloKey' });
+  const headers = { 'x-api-key': apolloKey, 'Content-Type': 'application/json' };
+  const usersMap = new Map(); // id → { id, name, email }
+
+  // 1. Primary: list all teammates via users/search
   try {
-    // Fetch one page of tasks (no type filter — maximise chance of hitting all users)
-    const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
-      method: 'POST',
-      headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-      body: JSON.stringify({ per_page: 100, page: 1 }),
-    });
-    const data = await safeJson(r);
-    if (!r.ok) return res.status(r.status).json(data);
-
-    // Collect unique user_ids from tasks
-    const userIds = [...new Set((data.tasks || []).map(t => t.user_id).filter(Boolean))];
-    log('APOLLO_DETECT_USERS', { uniqueUserIds: userIds.length });
-
-    if (!userIds.length) return res.json({ users: [] });
-
-    // Resolve each user_id to name + email
-    const users = await Promise.all(userIds.map(async (id) => {
-      try {
-        const ur = await fetch(`${APOLLO_BASE}/api/v1/users/${id}`, {
-          headers: { 'x-api-key': apolloKey, 'Content-Type': 'application/json' },
-        });
-        const udata = await ur.json();
-        const u = udata.user || udata;
-        return { id, name: u.name || u.first_name || id, email: u.email || '' };
-      } catch {
-        return { id, name: id, email: '' };
+    let page = 1, totalPages = 1;
+    do {
+      const r = await fetch(`${APOLLO_BASE}/api/v1/users/search?page=${page}&per_page=100`, { headers });
+      const text = await r.text();
+      log('APOLLO_USERS_SEARCH', { page, status: r.status, body: text.slice(0, 300) });
+      if (!r.ok) break;
+      const data = JSON.parse(text);
+      const users = data.users || [];
+      for (const u of users) {
+        if (!u.id) continue;
+        const name = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || u.id;
+        usersMap.set(u.id, { id: u.id, name, email: u.email || '' });
       }
-    }));
-
-    res.json({ users });
+      totalPages = data.pagination?.total_pages || 1;
+      page++;
+    } while (page <= totalPages && page <= 10);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    log('APOLLO_USERS_SEARCH_ERROR', { error: e.message });
   }
+
+  // 2. Fallback: scan tasks if users/search returned nothing (non-master key)
+  if (usersMap.size === 0) {
+    try {
+      const r = await fetch(`${APOLLO_BASE}/api/v1/tasks/search`, {
+        method: 'POST',
+        headers: { ...headers, 'Cache-Control': 'no-cache' },
+        body: JSON.stringify({ per_page: 100, page: 1 }),
+      });
+      const data = await safeJson(r);
+      if (r.ok) {
+        const userIds = [...new Set((data.tasks || []).map(t => t.user_id).filter(Boolean))];
+        await Promise.all(userIds.map(async (id) => {
+          try {
+            const ur = await fetch(`${APOLLO_BASE}/api/v1/users/${id}`, { headers });
+            const udata = await ur.json();
+            const u = udata.user || udata;
+            const name = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || id;
+            usersMap.set(id, { id, name, email: u.email || '' });
+          } catch {
+            usersMap.set(id, { id, name: id, email: '' });
+          }
+        }));
+      }
+    } catch (e) {
+      log('APOLLO_TASKS_DETECT_ERROR', { error: e.message });
+    }
+  }
+
+  log('APOLLO_DETECT_USERS', { totalUsers: usersMap.size });
+  res.json({ users: [...usersMap.values()] });
 });
 
 // ── Apollo: fetch open LinkedIn tasks (all pages, specific user) ──────────────
